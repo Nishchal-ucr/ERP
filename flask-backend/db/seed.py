@@ -1,3 +1,5 @@
+import os
+
 import bcrypt
 
 from db.connection import get_connection
@@ -203,6 +205,12 @@ def _seed_smtp_settings(conn):
     ).fetchone()
     if existing:
         return
+    app_password = os.environ.get("SEED_SMTP_APP_PASSWORD", "").strip()
+    if not app_password:
+        return
+    sender = os.environ.get("SEED_SMTP_SENDER_EMAIL", "").strip() or "example@example.com"
+    host = os.environ.get("SEED_SMTP_HOST", "smtp.gmail.com").strip()
+    port = int(os.environ.get("SEED_SMTP_PORT", "587"))
     conn.execute(
         """
         INSERT INTO smtp_settings (
@@ -210,10 +218,10 @@ def _seed_smtp_settings(conn):
         ) VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
-            "nishchalparne@gmail.com",
-            "lczo nwst nxxn wndz",
-            "smtp.gmail.com",
-            587,
+            sender,
+            app_password,
+            host,
+            port,
             1,
             1,
         ),
