@@ -36,7 +36,7 @@ export interface Shed {
 export interface Party {
   id: number;
   name: string;
-  type: object;
+  type: "SUPPLIER" | "CUSTOMER" | "BOTH";
   phone?: string;
   address?: string;
   createdAt: string;
@@ -74,8 +74,10 @@ export interface CreateFeedReceiptDto {
 
 export interface CreateShedDailyReportDto {
   shedId: number;
+  openingBirds?: number;
   birdsMortality: number;
   closingBirds: number;
+  openingEggs?: number;
   damagedEggs: number;
   standardEggsClosing: number;
   smallEggsClosing: number;
@@ -124,8 +126,10 @@ export interface ShedDailyReportResponseDto {
   dailyReportId: number;
   shedId: number;
 
+  openingBirds?: number;
   birdsMortality?: number;
   closingBirds?: number;
+  openingEggs?: number;
   damagedEggs?: number;
   standardEggsClosing?: number;
   smallEggsClosing?: number;

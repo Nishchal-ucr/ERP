@@ -337,17 +337,19 @@ def _insert_shed_daily_reports(conn, daily_report_id: int, reports):
         conn.execute(
             """
             INSERT INTO shed_daily_reports (
-              dailyReportId, shedId, birdsMortality, closingBirds, damagedEggs,
+              dailyReportId, shedId, openingBirds, birdsMortality, closingBirds, openingEggs, damagedEggs,
               standardEggsClosing, smallEggsClosing, bigEggsClosing,
               feedOpening, feedIssued, feedClosing, feedConsumed, totalEggsClosing, eggsProduced,
               totalFeedReceipt, closingFeed, createdAt, updatedAt
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """,
             (
                 daily_report_id,
                 item["shedId"],
+                item.get("openingBirds"),
                 item.get("birdsMortality"),
                 item.get("closingBirds"),
+                item.get("openingEggs"),
                 item.get("damagedEggs"),
                 item.get("standardEggsClosing"),
                 item.get("smallEggsClosing"),
@@ -365,9 +367,141 @@ def _insert_shed_daily_reports(conn, daily_report_id: int, reports):
         )
 
 
+def _validate_party_roles(conn, payload: dict) -> None:
+    sales = payload.get("sales") or []
+    feed_receipts = payload.get("feedReceipts") or []
+
+    sales_party_ids = {int(item["partyId"]) for item in sales if item.get("partyId") is not None}
+    feed_party_ids = {
+        int(item["partyId"]) for item in feed_receipts if item.get("partyId") is not None
+    }
+    all_ids = sorted(sales_party_ids | feed_party_ids)
+    if not all_ids:
+        return
+
+    placeholders = ",".join("?" for _ in all_ids)
+    rows = conn.execute(
+        f"SELECT id, type FROM parties WHERE id IN ({placeholders})",
+        all_ids,
+    ).fetchall()
+    type_by_id = {int(row["id"]): str(row["type"]) for row in rows}
+
+    for party_id in sales_party_ids:
+        party_type = type_by_id.get(party_id)
+        if party_type is None:
+            raise ValueError(f"Sales party {party_id} does not exist.")
+        if party_type not in {"CUSTOMER", "BOTH"}:
+            raise ValueError(
+                f"Sales party {party_id} must be CUSTOMER or BOTH, found {party_type}."
+            )
+
+    for party_id in feed_party_ids:
+        party_type = type_by_id.get(party_id)
+        if party_type is None:
+            raise ValueError(f"Feed receipt party {party_id} does not exist.")
+        if party_type not in {"SUPPLIER", "BOTH"}:
+            raise ValueError(
+                f"Feed receipt party {party_id} must be SUPPLIER or BOTH, found {party_type}."
+            )
+
+
+def _recalculate_feed_item_daily_stock(conn, daily_report_id: int, report_date: int) -> None:
+    feed_items = conn.execute(
+        "SELECT id FROM feed_items ORDER BY id"
+    ).fetchall()
+    feed_item_ids = [int(row["id"]) for row in feed_items]
+    if not feed_item_ids:
+        return
+
+    prev_day_closing_rows = conn.execute(
+        """
+        SELECT s.feedItemId, s.closingKg
+        FROM feed_item_daily_stock s
+        INNER JOIN (
+          SELECT feedItemId, MAX(reportDate) AS maxReportDate
+          FROM feed_item_daily_stock
+          WHERE reportDate < ?
+          GROUP BY feedItemId
+        ) p
+          ON p.feedItemId = s.feedItemId
+         AND p.maxReportDate = s.reportDate
+        """,
+        (report_date,),
+    ).fetchall()
+    opening_by_item = {
+        int(row["feedItemId"]): float(row["closingKg"] or 0) for row in prev_day_closing_rows
+    }
+
+    receipt_rows = conn.execute(
+        """
+        SELECT feedItemId, SUM(quantityKg) AS receiptsKg
+        FROM feed_receipts
+        WHERE dailyReportId = ?
+        GROUP BY feedItemId
+        """,
+        (daily_report_id,),
+    ).fetchall()
+    receipts_by_item = {
+        int(row["feedItemId"]): float(row["receiptsKg"] or 0) for row in receipt_rows
+    }
+
+    issued_rows = conn.execute(
+        """
+        SELECT shedId, SUM(feedIssued) AS issuedKg
+        FROM shed_daily_reports
+        WHERE dailyReportId = ?
+        GROUP BY shedId
+        """,
+        (daily_report_id,),
+    ).fetchall()
+    issued_by_shed = {int(row["shedId"]): float(row["issuedKg"] or 0) for row in issued_rows}
+
+    formulation_rows = conn.execute(
+        "SELECT shedId, feedItemId, ratioPer1000Kg FROM feed_formulations"
+    ).fetchall()
+    used_by_item = {item_id: 0.0 for item_id in feed_item_ids}
+    for row in formulation_rows:
+        shed_id = int(row["shedId"])
+        item_id = int(row["feedItemId"])
+        issued = float(issued_by_shed.get(shed_id, 0))
+        ratio = float(row["ratioPer1000Kg"] or 0)
+        if issued == 0 or ratio == 0:
+            continue
+        used_by_item[item_id] = used_by_item.get(item_id, 0.0) + (issued * ratio / 1000.0)
+
+    for item_id in feed_item_ids:
+        opening = float(opening_by_item.get(item_id, 0))
+        receipts = float(receipts_by_item.get(item_id, 0))
+        used = float(used_by_item.get(item_id, 0))
+        closing = opening + receipts - used
+        existing = conn.execute(
+            "SELECT id FROM feed_item_daily_stock WHERE reportDate = ? AND feedItemId = ?",
+            (report_date, item_id),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """
+                UPDATE feed_item_daily_stock
+                SET openingKg = ?, receiptsKg = ?, usedKg = ?, closingKg = ?, updatedAt = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (opening, receipts, used, closing, existing["id"]),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO feed_item_daily_stock (
+                  reportDate, feedItemId, openingKg, receiptsKg, usedKg, closingKg, createdAt, updatedAt
+                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """,
+                (report_date, item_id, opening, receipts, used, closing),
+            )
+
+
 def submit_daily_report(payload):
     report_date = parse_iso_date_to_yyyymmdd(payload["reportDate"])
     with get_connection() as conn:
+        _validate_party_roles(conn, payload)
         existing = conn.execute(
             "SELECT id FROM daily_reports WHERE reportDate = ?",
             (report_date,),
@@ -389,6 +523,7 @@ def submit_daily_report(payload):
         _insert_sales(conn, report_id, payload.get("sales"))
         _insert_feed_receipts(conn, report_id, payload.get("feedReceipts"))
         _insert_shed_daily_reports(conn, report_id, payload.get("shedDailyReports"))
+        _recalculate_feed_item_daily_stock(conn, report_id, report_date)
         conn.commit()
 
         row = conn.execute("SELECT * FROM daily_reports WHERE id = ?", (report_id,)).fetchone()
@@ -404,6 +539,7 @@ def submit_daily_report(payload):
 def update_daily_report(payload):
     report_date = parse_iso_date_to_yyyymmdd(payload["reportDate"])
     with get_connection() as conn:
+        _validate_party_roles(conn, payload)
         report = conn.execute(
             "SELECT * FROM daily_reports WHERE reportDate = ?",
             (report_date,),
@@ -431,6 +567,7 @@ def update_daily_report(payload):
         _insert_sales(conn, report["id"], payload.get("sales"))
         _insert_feed_receipts(conn, report["id"], payload.get("feedReceipts"))
         _insert_shed_daily_reports(conn, report["id"], payload.get("shedDailyReports"))
+        _recalculate_feed_item_daily_stock(conn, int(report["id"]), report_date)
         conn.commit()
 
         updated = conn.execute(

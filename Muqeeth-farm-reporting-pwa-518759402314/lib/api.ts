@@ -77,6 +77,16 @@ export async function getAllParties(): Promise<Party[]> {
   return processResponse(response);
 }
 
+export async function getBuyerParties(): Promise<Party[]> {
+  const response = await fetch(buildUrl("/api/parties?role=buyer"));
+  return processResponse(response);
+}
+
+export async function getSellerParties(): Promise<Party[]> {
+  const response = await fetch(buildUrl("/api/parties?role=seller"));
+  return processResponse(response);
+}
+
 export async function getPartyById(id: number): Promise<Party> {
   const response = await fetch(buildUrl(`/api/parties/${id}`));
   return processResponse(response);

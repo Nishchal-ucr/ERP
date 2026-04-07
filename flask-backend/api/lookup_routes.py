@@ -1,6 +1,12 @@
-from flask import Blueprint
+from flask import Blueprint, request
 
-from services.lookup_service import get_all, get_by_id
+from services.lookup_service import (
+    get_all,
+    get_by_id,
+    get_feed_formulation_by_id,
+    get_feed_formulations,
+    get_parties_by_role,
+)
 from utils.http import error, ok
 
 lookup_bp = Blueprint("lookup", __name__)
@@ -28,7 +34,13 @@ def sheds_one(raw_id: str):
 
 @lookup_bp.get("/api/parties")
 def parties_all():
-    return ok(get_all("parties"))
+    role = (request.args.get("role") or "").strip().lower()
+    if not role:
+        return ok(get_all("parties"))
+    try:
+        return ok(get_parties_by_role(role))
+    except ValueError as exc:
+        return error(str(exc), 400)
 
 
 @lookup_bp.get("/api/parties/<raw_id>")
@@ -50,3 +62,16 @@ def feed_items_one(raw_id: str):
     if err:
         return err
     return ok(get_by_id("feed_items", item_id))
+
+
+@lookup_bp.get("/api/feed-formulations")
+def feed_formulations_all():
+    return ok(get_feed_formulations())
+
+
+@lookup_bp.get("/api/feed-formulations/<raw_id>")
+def feed_formulations_one(raw_id: str):
+    item_id, err = _parse_int_or_400(raw_id)
+    if err:
+        return err
+    return ok(get_feed_formulation_by_id(item_id))

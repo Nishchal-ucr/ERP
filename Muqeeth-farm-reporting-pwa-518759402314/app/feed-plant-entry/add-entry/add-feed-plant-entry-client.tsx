@@ -13,10 +13,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
+import { getSellerParties } from "@/lib/api";
 import { useAppData } from "@/lib/app-data-context";
 import { useDailyReportDraft } from "@/lib/daily-report-draft-context";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import type { Party } from "@/lib/types";
 
 interface AddFeedPlantEntryClientProps {
   date: string;
@@ -27,11 +29,12 @@ export function AddFeedPlantEntryClient({
 }: AddFeedPlantEntryClientProps) {
   const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
-  const { parties, feedItems, isLoading: dataLoading } = useAppData();
+  const { feedItems, isLoading: dataLoading } = useAppData();
   const { draft, updateFeedReceipts, markNoFeedReceipts } =
     useDailyReportDraft();
 
   const [party, setParty] = useState("");
+  const [sellerParties, setSellerParties] = useState<Party[]>([]);
   const [feedItem, setFeedItem] = useState("");
   const [vehicle, setVehicle] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -41,6 +44,20 @@ export function AddFeedPlantEntryClient({
       router.push("/login");
     }
   }, [user, authLoading, router]);
+
+  useEffect(() => {
+    let mounted = true;
+    getSellerParties()
+      .then((items) => {
+        if (mounted) setSellerParties(items);
+      })
+      .catch(() => {
+        if (mounted) setSellerParties([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   if (authLoading || dataLoading) {
     return (
@@ -98,9 +115,9 @@ export function AddFeedPlantEntryClient({
                   <SelectValue placeholder="Select Party" />
                 </SelectTrigger>
                 <SelectContent>
-                  {parties.map((party) => (
-                    <SelectItem key={party.id} value={party.id.toString()}>
-                      {party.name}
+                  {sellerParties.map((sellerParty) => (
+                    <SelectItem key={sellerParty.id} value={sellerParty.id.toString()}>
+                      {sellerParty.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

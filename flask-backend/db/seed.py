@@ -22,6 +22,7 @@ def seed_data() -> None:
         _seed_parties(conn)
         _seed_feed_items(conn)
         _seed_sheds(conn)
+        _seed_feed_formulations(conn)
         _seed_shed_flock_metadata(conn)
         _seed_email_recipients(conn)
         _seed_smtp_settings(conn)
@@ -69,40 +70,23 @@ def _seed_parties(conn):
 
 
 def _seed_feed_items(conn):
-    if _count(conn, "feed_items") > 0:
-        return
-
     items = [
         ("Maize", "INGREDIENT"),
-        ("Broken Rice", "INGREDIENT"),
-        ("PARAM", "INGREDIENT"),
+        ("Param", "INGREDIENT"),
         ("Soya", "INGREDIENT"),
         ("DDGS", "INGREDIENT"),
         ("DORB", "INGREDIENT"),
-        ("MDOC", "INGREDIENT"),
-        ("DOGN", "INGREDIENT"),
-        ("Soya Oil", "INGREDIENT"),
-        ("Rice bran", "INGREDIENT"),
-        ("MBM", "INGREDIENT"),
-        ("Calcite", "INGREDIENT"),
         ("Stone", "INGREDIENT"),
-        ("MCP", "MEDICINE"),
-        ("Methionine", "MEDICINE"),
-        ("Lysine", "MEDICINE"),
-        ("Threonine", "MEDICINE"),
+        ("MCP", "INGREDIENT"),
         ("Salt", "MEDICINE"),
-        ("Sodium_Bicarbonate", "MEDICINE"),
-        ("Probiotic", "MEDICINE"),
-        ("Vitamin Premix", "MEDICINE"),
-        ("Trace Minerals (TM)", "MEDICINE"),
-        ("Liver Tonic", "MEDICINE"),
-        ("Toxin Binder", "MEDICINE"),
-        ("Choline chloride", "MEDICINE"),
-        ("Acidifire", "MEDICINE"),
-        ("Enzymes", "MEDICINE"),
-        ("Phytase", "MEDICINE"),
-        ("Antibiotic", "MEDICINE"),
+        ("Soda", "MEDICINE"),
+        ("DLM", "MEDICINE"),
         ("Betaine", "MEDICINE"),
+        ("Microsaf", "MEDICINE"),
+        ("LipoVital", "MEDICINE"),
+        ("Rai Manta", "MEDICINE"),
+        ("PMR-Valvin Composite", "MEDICINE"),
+        ("Chick Crumble", "INGREDIENT"),
     ]
 
     for name, category in items:
@@ -115,6 +99,154 @@ def _seed_feed_items(conn):
                 "INSERT INTO feed_items (name, category) VALUES (?, ?)",
                 (name, category),
             )
+
+
+def _seed_feed_formulations(conn):
+    shed_rows = conn.execute("SELECT id, name FROM sheds").fetchall()
+    item_rows = conn.execute("SELECT id, name FROM feed_items").fetchall()
+    shed_id_by_name = {row["name"]: row["id"] for row in shed_rows}
+    item_id_by_name = {row["name"]: row["id"] for row in item_rows}
+
+    ratios_by_shed = {
+        "Shed 1": {
+            "Maize": 660,
+            "Param": 0,
+            "DORB": 33,
+            "Soya": 175,
+            "DDGS": 0,
+            "Stone": 115,
+            "MCP": 5,
+            "Salt": 2.7,
+            "Soda": 1.5,
+            "DLM": 1,
+            "Betaine": 1,
+            "Microsaf": 0.25,
+            "LipoVital": 0.25,
+            "Rai Manta": 0.25,
+            "PMR-Valvin Composite": 5,
+            "Chick Crumble": 0,
+        },
+        "Shed 2": {
+            "Maize": 660,
+            "Param": 0,
+            "DORB": 33,
+            "Soya": 175,
+            "DDGS": 0,
+            "Stone": 115,
+            "MCP": 5,
+            "Salt": 2.7,
+            "Soda": 1.5,
+            "DLM": 1,
+            "Betaine": 1,
+            "Microsaf": 0.25,
+            "LipoVital": 0.25,
+            "Rai Manta": 0.25,
+            "PMR-Valvin Composite": 5,
+            "Chick Crumble": 0,
+        },
+        "Shed 3": {
+            "Maize": 660,
+            "Param": 0,
+            "DORB": 33,
+            "Soya": 175,
+            "DDGS": 0,
+            "Stone": 115,
+            "MCP": 5,
+            "Salt": 2.7,
+            "Soda": 1.5,
+            "DLM": 1,
+            "Betaine": 1,
+            "Microsaf": 0.25,
+            "LipoVital": 0.25,
+            "Rai Manta": 0.25,
+            "PMR-Valvin Composite": 5,
+            "Chick Crumble": 0,
+        },
+        "Shed 4": {
+            "Maize": 640,
+            "Param": 0,
+            "DORB": 12,
+            "Soya": 220,
+            "DDGS": 0,
+            "Stone": 110,
+            "MCP": 6,
+            "Salt": 2.6,
+            "Soda": 1.5,
+            "DLM": 1.2,
+            "Betaine": 1,
+            "Microsaf": 0.25,
+            "LipoVital": 0.25,
+            "Rai Manta": 0.25,
+            "PMR-Valvin Composite": 5,
+            "Chick Crumble": 0,
+        },
+        "Shed 5": {
+            "Maize": 636,
+            "Param": 0,
+            "DORB": 0,
+            "Soya": 245,
+            "DDGS": 0,
+            "Stone": 110,
+            "MCP": 6,
+            "Salt": 2.7,
+            "Soda": 1.5,
+            "DLM": 1.8,
+            "Betaine": 1,
+            "Microsaf": 0.25,
+            "LipoVital": 0.25,
+            "Rai Manta": 0.25,
+            "PMR-Valvin Composite": 5,
+            "Chick Crumble": 0,
+        },
+        "Grower 1": {
+            "Maize": 0,
+            "Param": 0,
+            "DORB": 0,
+            "Soya": 0,
+            "DDGS": 0,
+            "Stone": 0,
+            "MCP": 0,
+            "Salt": 0,
+            "Soda": 0,
+            "DLM": 0,
+            "Betaine": 0,
+            "Microsaf": 0,
+            "LipoVital": 0,
+            "Rai Manta": 0,
+            "PMR-Valvin Composite": 0,
+            "Chick Crumble": 1000,
+        },
+    }
+
+    for shed_name, item_ratios in ratios_by_shed.items():
+        shed_id = shed_id_by_name.get(shed_name)
+        if not shed_id:
+            continue
+        for item_name, ratio in item_ratios.items():
+            item_id = item_id_by_name.get(item_name)
+            if not item_id:
+                continue
+            existing = conn.execute(
+                "SELECT id FROM feed_formulations WHERE shedId = ? AND feedItemId = ?",
+                (shed_id, item_id),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    """
+                    UPDATE feed_formulations
+                    SET ratioPer1000Kg = ?, updatedAt = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (ratio, existing["id"]),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO feed_formulations (shedId, feedItemId, ratioPer1000Kg)
+                    VALUES (?, ?, ?)
+                    """,
+                    (shed_id, item_id, ratio),
+                )
 
 
 def _seed_sheds(conn):

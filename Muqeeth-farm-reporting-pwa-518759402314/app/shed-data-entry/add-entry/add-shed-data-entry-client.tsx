@@ -91,10 +91,12 @@ export function AddShedDataEntryClient({
     openingResolved.current = true;
 
     const inferredOpeningBirds =
-      draftReport?.closingBirds !== undefined &&
-      draftReport?.birdsMortality !== undefined
-        ? draftReport.closingBirds + draftReport.birdsMortality
-        : undefined;
+      draftReport?.openingBirds !== undefined
+        ? draftReport.openingBirds
+        : draftReport?.closingBirds !== undefined &&
+            draftReport?.birdsMortality !== undefined
+          ? draftReport.closingBirds + draftReport.birdsMortality
+          : undefined;
 
     try {
       const resolution = await getOpeningBirdsForShed(date, shed.id);
@@ -147,6 +149,7 @@ export function AddShedDataEntryClient({
     openingEggsResolved.current = true;
 
     const inferredOpeningEggs =
+      draftReport?.openingEggs ??
       draftReport?.totalEggsClosing ??
       ((draftReport?.standardEggsClosing ?? 0) +
         (draftReport?.smallEggsClosing ?? 0) +
@@ -315,8 +318,10 @@ export function AddShedDataEntryClient({
         r.shedId === shedData.shedId
           ? {
               shedId: shedData.shedId,
+              openingBirds,
               birdsMortality: shedData.birdsMortality!,
               closingBirds: computedClosingBirds,
+              openingEggs,
               damagedEggs: shedData.damagedEggs!,
               standardEggsClosing: shedData.standardEggsClosing!,
               smallEggsClosing: shedData.smallEggsClosing!,
@@ -335,8 +340,10 @@ export function AddShedDataEntryClient({
     if (!updatedReports.find((r) => r.shedId === shedData.shedId)) {
       updatedReports.push({
         shedId: shedData.shedId!,
+        openingBirds,
         birdsMortality: shedData.birdsMortality!,
         closingBirds: computedClosingBirds,
+        openingEggs,
         damagedEggs: shedData.damagedEggs!,
         standardEggsClosing: shedData.standardEggsClosing!,
         smallEggsClosing: shedData.smallEggsClosing!,

@@ -16,8 +16,10 @@ import { useEffect } from "react";
 type ShedDataRow = {
   shedId: number;
   shedName: string;
+  openingBirds?: number;
   birdsMortality?: number;
   closingBirds?: number;
+  openingEggs?: number;
   damagedEggs?: number;
   standardEggsClosing?: number;
   smallEggsClosing?: number;
@@ -55,8 +57,10 @@ export function ShedDataEntryClient({ date }: ShedDataEntryClientProps) {
           return {
             shedId: shed.id,
             shedName: shed.name,
+            openingBirds: draftReport?.openingBirds ?? undefined,
             birdsMortality: draftReport?.birdsMortality ?? undefined,
             closingBirds: draftReport?.closingBirds ?? undefined,
+            openingEggs: draftReport?.openingEggs ?? undefined,
             damagedEggs: draftReport?.damagedEggs ?? undefined,
             standardEggsClosing: draftReport?.standardEggsClosing ?? undefined,
             smallEggsClosing: draftReport?.smallEggsClosing ?? undefined,
@@ -82,8 +86,10 @@ export function ShedDataEntryClient({ date }: ShedDataEntryClientProps) {
   const handleSubmit = () => {
     const dtoData: CreateShedDailyReportDto[] = data.map((d) => ({
       shedId: d.shedId,
+      openingBirds: d.openingBirds,
       birdsMortality: d.birdsMortality!,
       closingBirds: d.closingBirds!,
+      openingEggs: d.openingEggs,
       damagedEggs: d.damagedEggs!,
       standardEggsClosing: d.standardEggsClosing!,
       smallEggsClosing: d.smallEggsClosing!,
@@ -164,6 +170,12 @@ export function ShedDataEntryClient({ date }: ShedDataEntryClientProps) {
                         <tbody>
                           <tr className="border-b">
                             <td className="px-2 py-1 font-medium">
+                              Opening Birds
+                            </td>
+                            <td className="px-2 py-1">{row.openingBirds}</td>
+                          </tr>
+                          <tr className="border-b">
+                            <td className="px-2 py-1 font-medium">
                               Birds Mortality
                             </td>
                             <td className="px-2 py-1">{row.birdsMortality}</td>
@@ -173,6 +185,12 @@ export function ShedDataEntryClient({ date }: ShedDataEntryClientProps) {
                               Closing Birds
                             </td>
                             <td className="px-2 py-1">{row.closingBirds}</td>
+                          </tr>
+                          <tr className="border-b">
+                            <td className="px-2 py-1 font-medium">
+                              Opening Eggs
+                            </td>
+                            <td className="px-2 py-1">{row.openingEggs}</td>
                           </tr>
                           <tr className="border-b">
                             <td className="px-2 py-1 font-medium">

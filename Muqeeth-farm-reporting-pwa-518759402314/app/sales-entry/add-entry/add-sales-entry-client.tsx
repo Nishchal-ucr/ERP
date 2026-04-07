@@ -13,11 +13,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-context";
+import { getBuyerParties } from "@/lib/api";
 import { useAppData } from "@/lib/app-data-context";
 import { useDailyReportDraft } from "@/lib/daily-report-draft-context";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import type { CreateSaleItemDto } from "@/lib/types";
+import type { CreateSaleItemDto, Party } from "@/lib/types";
 
 type SaleEntry = {
   shed: string;
@@ -34,12 +35,13 @@ interface AddSalesEntryClientProps {
 export function AddSalesEntryClient({ date }: AddSalesEntryClientProps) {
   const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
-  const { sheds, parties, isLoading: dataLoading } = useAppData();
+  const { sheds, isLoading: dataLoading } = useAppData();
   const { draft, updateSales, markNoSales } = useDailyReportDraft();
 
   const [entries, setEntries] = useState<SaleEntry[]>([
     { shed: "", standardEggs: "", smallEggs: "", bigEggs: "", loadingDamage: "" },
   ]);
+  const [buyerParties, setBuyerParties] = useState<Party[]>([]);
   const [party, setParty] = useState("");
   const [vehicle, setVehicle] = useState("");
 
@@ -71,6 +73,20 @@ export function AddSalesEntryClient({ date }: AddSalesEntryClientProps) {
       router.push("/login");
     }
   }, [user, authLoading, router]);
+
+  useEffect(() => {
+    let mounted = true;
+    getBuyerParties()
+      .then((items) => {
+        if (mounted) setBuyerParties(items);
+      })
+      .catch(() => {
+        if (mounted) setBuyerParties([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   if (authLoading || dataLoading) {
     return (
@@ -149,9 +165,9 @@ export function AddSalesEntryClient({ date }: AddSalesEntryClientProps) {
                   <SelectValue placeholder="Select Party" />
                 </SelectTrigger>
                 <SelectContent>
-                  {parties.map((party) => (
-                    <SelectItem key={party.id} value={party.id.toString()}>
-                      {party.name}
+                  {buyerParties.map((buyerParty) => (
+                    <SelectItem key={buyerParty.id} value={buyerParty.id.toString()}>
+                      {buyerParty.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -49,6 +49,41 @@ CREATE TABLE IF NOT EXISTS feed_items (
   updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS feed_formulations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  shedId INTEGER NOT NULL,
+  feedItemId INTEGER NOT NULL,
+  ratioPer1000Kg REAL NOT NULL DEFAULT 0,
+  createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(shedId, feedItemId),
+  FOREIGN KEY(shedId) REFERENCES sheds(id) ON DELETE CASCADE,
+  FOREIGN KEY(feedItemId) REFERENCES feed_items(id)
+);
+
+CREATE TABLE IF NOT EXISTS feed_item_daily_stock (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  reportDate INTEGER NOT NULL,
+  feedItemId INTEGER NOT NULL,
+  openingKg REAL NOT NULL DEFAULT 0,
+  receiptsKg REAL NOT NULL DEFAULT 0,
+  usedKg REAL NOT NULL DEFAULT 0,
+  closingKg REAL NOT NULL DEFAULT 0,
+  createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(reportDate, feedItemId),
+  FOREIGN KEY(feedItemId) REFERENCES feed_items(id)
+);
+
+CREATE TABLE IF NOT EXISTS production_standards (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  week INTEGER NOT NULL UNIQUE,
+  standardProductionPct REAL NOT NULL DEFAULT 0,
+  standardFeedConsumption REAL NOT NULL DEFAULT 0,
+  createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS email_recipients (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL UNIQUE,
@@ -123,8 +158,10 @@ CREATE TABLE IF NOT EXISTS shed_daily_reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   dailyReportId INTEGER NOT NULL,
   shedId INTEGER NOT NULL,
+  openingBirds INTEGER,
   birdsMortality INTEGER,
   closingBirds INTEGER,
+  openingEggs INTEGER,
   damagedEggs INTEGER,
   standardEggsClosing INTEGER,
   smallEggsClosing INTEGER,
@@ -152,7 +189,9 @@ def _ensure_shed_daily_reports_columns(conn) -> None:
       for row in conn.execute("PRAGMA table_info(shed_daily_reports)").fetchall()
   }
   required = {
+      "openingBirds": "INTEGER",
       "bigEggsClosing": "INTEGER",
+      "openingEggs": "INTEGER",
       "feedOpening": "REAL",
       "feedIssued": "REAL",
       "feedClosing": "REAL",
@@ -181,9 +220,43 @@ def _ensure_sale_items_columns(conn) -> None:
           conn.execute(f"ALTER TABLE sale_items ADD COLUMN {column} {col_type}")
 
 
+def _ensure_feed_formulation_columns(conn) -> None:
+  existing = {
+      row["name"] for row in conn.execute("PRAGMA table_info(feed_formulations)").fetchall()
+  }
+  required = {
+      "ratioPer1000Kg": "REAL NOT NULL DEFAULT 0",
+  }
+  for column, col_type in required.items():
+      if column not in existing:
+          conn.execute(f"ALTER TABLE feed_formulations ADD COLUMN {column} {col_type}")
+
+
+def _ensure_production_standards_columns(conn) -> None:
+  existing = {
+      row["name"]
+      for row in conn.execute("PRAGMA table_info(production_standards)").fetchall()
+  }
+  required = {
+      "week": "INTEGER NOT NULL DEFAULT 0",
+      "standardProductionPct": "REAL NOT NULL DEFAULT 0",
+      "standardFeedConsumption": "REAL NOT NULL DEFAULT 0",
+  }
+  for column, col_type in required.items():
+      if column not in existing:
+          conn.execute(
+              f"ALTER TABLE production_standards ADD COLUMN {column} {col_type}"
+          )
+  conn.execute(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_production_standards_week ON production_standards(week)"
+  )
+
+
 def initialize_schema() -> None:
     with get_connection() as conn:
         conn.executescript(SCHEMA_SQL)
         _ensure_sale_items_columns(conn)
         _ensure_shed_daily_reports_columns(conn)
+        _ensure_feed_formulation_columns(conn)
+        _ensure_production_standards_columns(conn)
         conn.commit()

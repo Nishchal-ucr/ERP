@@ -137,9 +137,13 @@ function createEmptyDraft(date: string): DailyReportDraft {
 }
 
 function getPreviousDateString(dateString: string): string {
-  const parsed = new Date(dateString);
-  parsed.setDate(parsed.getDate() - 1);
-  return parsed.toISOString().split("T")[0];
+  const [yearRaw, monthRaw, dayRaw] = dateString.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  const utcDate = new Date(Date.UTC(year, month - 1, day));
+  utcDate.setUTCDate(utcDate.getUTCDate() - 1);
+  return utcDate.toISOString().slice(0, 10);
 }
 
 function convertDailyReportResponseToDraft(
@@ -173,8 +177,10 @@ function convertDailyReportResponseToDraft(
     response.shedDailyReports ?? []
   ).map((report: ShedDailyReportResponseDto) => ({
     shedId: report.shedId,
+    openingBirds: report.openingBirds,
     birdsMortality: report.birdsMortality ?? 0,
     closingBirds: report.closingBirds ?? 0,
+    openingEggs: report.openingEggs,
     damagedEggs: report.damagedEggs ?? 0,
     standardEggsClosing: report.standardEggsClosing ?? 0,
     smallEggsClosing: report.smallEggsClosing ?? 0,

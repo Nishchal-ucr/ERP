@@ -12,7 +12,7 @@ from reportlab.pdfgen import canvas
 from db.connection import get_connection
 
 
-STANDARD_BY_WEEK: Dict[int, Tuple[float, float]] = {
+DEFAULT_STANDARD_BY_WEEK: Dict[int, Tuple[float, float]] = {
     18: (0.0, 0.078),
     19: (3.0, 0.084),
     20: (15.0, 0.089),
@@ -99,6 +99,26 @@ STANDARD_BY_WEEK: Dict[int, Tuple[float, float]] = {
 }
 
 
+def _load_standard_by_week() -> Dict[int, Tuple[float, float]]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT week, standardProductionPct, standardFeedConsumption
+            FROM production_standards
+            ORDER BY week
+            """
+        ).fetchall()
+    if not rows:
+        return DEFAULT_STANDARD_BY_WEEK
+    standards: Dict[int, Tuple[float, float]] = {}
+    for row in rows:
+        standards[int(row["week"])] = (
+            float(row["standardProductionPct"] or 0),
+            float(row["standardFeedConsumption"] or 0),
+        )
+    return standards
+
+
 def _safe_div(numerator: Optional[float], denominator: Optional[float]) -> Optional[float]:
     if numerator is None or denominator is None or denominator == 0:
         return None
@@ -158,6 +178,7 @@ def _build_report1_matrix(report_payload: dict) -> Tuple[List[str], List[List[st
     report_day = _to_date(report_date)
     flock_meta = _load_flock_metadata()
     prev_map = _load_previous_shed_map(report_date)
+    standard_by_week = _load_standard_by_week()
 
     shed_reports = report_payload.get("shedDailyReports", []) or []
     shed_reports_sorted = sorted(shed_reports, key=lambda x: x["shed"]["name"])
@@ -227,8 +248,8 @@ def _build_report1_matrix(report_payload: dict) -> Tuple[List[str], List[List[st
 
         std_prod = None
         std_feed = None
-        if age_week in STANDARD_BY_WEEK:
-            std_prod, std_feed = STANDARD_BY_WEEK[age_week]
+        if age_week in standard_by_week:
+            std_prod, std_feed = standard_by_week[age_week]
             std_prod /= 100.0
 
         std_prod_diff = None
@@ -333,34 +354,102 @@ def _build_report1_matrix(report_payload: dict) -> Tuple[List[str], List[List[st
 
 
 def _build_report2_matrix(report_payload: dict) -> Tuple[List[str], List[List[str]]]:
-    feed_items = {}
-    for rec in report_payload.get("feedReceipts", []) or []:
-        item_name = (rec.get("feedItem") or {}).get("name") or f"Item {rec.get('feedItemId')}"
-        feed_items[item_name] = feed_items.get(item_name, 0.0) + float(rec.get("quantityKg") or 0)
-
-    shed_reports = sorted(report_payload.get("shedDailyReports", []) or [], key=lambda x: x["shed"]["name"])
-    columns = ["Item Name", "Net Receipts (kg)"]
-    matrix = [[name, _format_number(qty, 2)] for name, qty in sorted(feed_items.items())]
-
-    issued_columns = ["Shed", "Issued Feed (kg)"]
-    issued_rows = [
-        [r["shed"]["name"], _format_number(float(r.get("feedIssued") or 0), 2)]
-        for r in shed_reports
-    ]
-    total_issued = sum(float(r.get("feedIssued") or 0) for r in shed_reports)
-    issued_rows.append(["Total Issued", _format_number(total_issued, 2)])
-
-    matrix.append(["", ""])
-    matrix.append(["Shed-wise Issued Feed", ""])
-    matrix.append([" | ".join(issued_columns), ""])
-    for row in issued_rows:
-        matrix.append([f"{row[0]}", row[1]])
-    matrix.append(
-        [
-            "Note",
-            "Item-wise opening/closing stock and per-item shed-issued split are not captured in current model.",
-        ]
+    report_date = int(report_payload.get("reportDate") or 0)
+    shed_reports = sorted(
+        report_payload.get("shedDailyReports", []) or [],
+        key=lambda x: x["shed"]["name"],
     )
+    sheds = [(int(row["shed"]["id"]), row["shed"]["name"]) for row in shed_reports]
+    issued_by_shed = {
+        int(row["shed"]["id"]): float(row.get("feedIssued") or 0) for row in shed_reports
+    }
+
+    with get_connection() as conn:
+        feed_items = conn.execute(
+            "SELECT id, name FROM feed_items ORDER BY name"
+        ).fetchall()
+        stock_rows = conn.execute(
+            """
+            SELECT feedItemId, openingKg, receiptsKg, usedKg, closingKg
+            FROM feed_item_daily_stock
+            WHERE reportDate = ?
+            """,
+            (report_date,),
+        ).fetchall()
+        formulations = conn.execute(
+            """
+            SELECT shedId, feedItemId, ratioPer1000Kg
+            FROM feed_formulations
+            """
+        ).fetchall()
+
+    stock_by_item = {
+        int(row["feedItemId"]): {
+            "opening": float(row["openingKg"] or 0),
+            "receipts": float(row["receiptsKg"] or 0),
+            "used": float(row["usedKg"] or 0),
+            "closing": float(row["closingKg"] or 0),
+        }
+        for row in stock_rows
+    }
+    ratio_by_pair = {
+        (int(row["shedId"]), int(row["feedItemId"])): float(row["ratioPer1000Kg"] or 0)
+        for row in formulations
+    }
+
+    columns = (
+        ["Item Name", "Opening (kg)", "Receipts (kg)"]
+        + [f"{shed_name} Used (kg)" for _, shed_name in sheds]
+        + ["Total Used (kg)", "Closing (kg)"]
+    )
+    matrix: List[List[str]] = []
+
+    totals = {
+        "opening": 0.0,
+        "receipts": 0.0,
+        "used": 0.0,
+        "closing": 0.0,
+    }
+    shed_totals: Dict[int, float] = {shed_id: 0.0 for shed_id, _ in sheds}
+
+    for item in feed_items:
+        item_id = int(item["id"])
+        item_name = str(item["name"])
+        stock = stock_by_item.get(
+            item_id, {"opening": 0.0, "receipts": 0.0, "used": 0.0, "closing": 0.0}
+        )
+        per_shed_usage = []
+        for shed_id, _ in sheds:
+            ratio = float(ratio_by_pair.get((shed_id, item_id), 0))
+            issued = float(issued_by_shed.get(shed_id, 0))
+            used = issued * ratio / 1000.0
+            per_shed_usage.append(used)
+            shed_totals[shed_id] += used
+
+        row = [
+            item_name,
+            _format_number(stock["opening"], 2),
+            _format_number(stock["receipts"], 2),
+        ]
+        row.extend(_format_number(value, 2) for value in per_shed_usage)
+        row.append(_format_number(stock["used"], 2))
+        row.append(_format_number(stock["closing"], 2))
+        matrix.append(row)
+
+        totals["opening"] += stock["opening"]
+        totals["receipts"] += stock["receipts"]
+        totals["used"] += stock["used"]
+        totals["closing"] += stock["closing"]
+
+    total_row = [
+        "Total",
+        _format_number(totals["opening"], 2),
+        _format_number(totals["receipts"], 2),
+    ]
+    total_row.extend(_format_number(shed_totals[shed_id], 2) for shed_id, _ in sheds)
+    total_row.append(_format_number(totals["used"], 2))
+    total_row.append(_format_number(totals["closing"], 2))
+    matrix.append(total_row)
     return columns, matrix
 
 
