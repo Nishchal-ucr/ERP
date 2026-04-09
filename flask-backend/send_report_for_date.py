@@ -45,7 +45,7 @@ def main() -> int:
         report_int = int(iso_date.replace("-", ""))
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT id FROM daily_reports WHERE reportDate = ?",
+                "SELECT id FROM daily_reports WHERE reportDate = %s",
                 (report_int,),
             ).fetchone()
         if not row:

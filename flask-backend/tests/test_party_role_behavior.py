@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import sys
-import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -47,10 +46,10 @@ from services.lookup_service import get_parties_by_role
 
 class PartyRoleBehaviorTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temp_dir = Path(tempfile.mkdtemp(prefix="party-role-test-"))
-        self.db_path = self.temp_dir / "test.sqlite"
-        os.environ["DATABASE"] = str(self.db_path)
-        Config.DATABASE = str(self.db_path)
+        db_url = os.environ.get("TEST_DATABASE_URL", os.environ.get("DATABASE_URL", ""))
+        if not db_url:
+            self.skipTest("TEST_DATABASE_URL or DATABASE_URL must be set to run tests.")
+        Config.DATABASE_URL = db_url
         initialize_schema()
         seed_data()
 
@@ -84,11 +83,11 @@ class PartyRoleBehaviorTests(unittest.TestCase):
     def test_submit_rejects_customer_party_for_feed_receipt(self) -> None:
         with get_connection() as conn:
             cur = conn.execute(
-                "INSERT INTO parties (name, type, phone, address) VALUES (?, 'CUSTOMER', ?, ?)",
+                "INSERT INTO parties (name, type, phone, address) VALUES (%s, 'CUSTOMER', %s, %s) RETURNING id",
                 ("Only Customer", "9999999999", "Hyd"),
             )
+            customer_id = int(cur.fetchone()["id"])
             conn.commit()
-            customer_id = int(cur.lastrowid)
         payload = {
             "reportDate": "2026-04-10",
             "submitterId": 1,

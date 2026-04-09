@@ -40,10 +40,10 @@ def _seed_users(conn):
     ]
 
     for name, phone, password, role in users:
-        existing = conn.execute("SELECT id FROM users WHERE phone = ?", (phone,)).fetchone()
+        existing = conn.execute("SELECT id FROM users WHERE phone = %s", (phone,)).fetchone()
         if not existing:
             conn.execute(
-                "INSERT INTO users (name, phone, passwordHash, role) VALUES (?, ?, ?, ?)",
+                "INSERT INTO users (name, phone, passwordHash, role) VALUES (%s, %s, %s, %s)",
                 (name, phone, _hash_password(password), role),
             )
 
@@ -61,10 +61,10 @@ def _seed_parties(conn):
     ]
 
     for name, kind, phone, address in parties:
-        existing = conn.execute("SELECT id FROM parties WHERE name = ?", (name,)).fetchone()
+        existing = conn.execute("SELECT id FROM parties WHERE name = %s", (name,)).fetchone()
         if not existing:
             conn.execute(
-                "INSERT INTO parties (name, type, phone, address) VALUES (?, ?, ?, ?)",
+                "INSERT INTO parties (name, type, phone, address) VALUES (%s, %s, %s, %s)",
                 (name, kind, phone, address),
             )
 
@@ -91,12 +91,12 @@ def _seed_feed_items(conn):
 
     for name, category in items:
         existing = conn.execute(
-            "SELECT id FROM feed_items WHERE name = ?",
+            "SELECT id FROM feed_items WHERE name = %s",
             (name,),
         ).fetchone()
         if not existing:
             conn.execute(
-                "INSERT INTO feed_items (name, category) VALUES (?, ?)",
+                "INSERT INTO feed_items (name, category) VALUES (%s, %s)",
                 (name, category),
             )
 
@@ -227,15 +227,15 @@ def _seed_feed_formulations(conn):
             if not item_id:
                 continue
             existing = conn.execute(
-                "SELECT id FROM feed_formulations WHERE shedId = ? AND feedItemId = ?",
+                "SELECT id FROM feed_formulations WHERE shedId = %s AND feedItemId = %s",
                 (shed_id, item_id),
             ).fetchone()
             if existing:
                 conn.execute(
                     """
                     UPDATE feed_formulations
-                    SET ratioPer1000Kg = ?, updatedAt = CURRENT_TIMESTAMP
-                    WHERE id = ?
+                    SET ratioPer1000Kg = %s, updatedAt = CURRENT_TIMESTAMP
+                    WHERE id = %s
                     """,
                     (ratio, existing["id"]),
                 )
@@ -243,7 +243,7 @@ def _seed_feed_formulations(conn):
                 conn.execute(
                     """
                     INSERT INTO feed_formulations (shedId, feedItemId, ratioPer1000Kg)
-                    VALUES (?, ?, ?)
+                    VALUES (%s, %s, %s)
                     """,
                     (shed_id, item_id, ratio),
                 )
@@ -263,10 +263,10 @@ def _seed_sheds(conn):
     ]
 
     for name, capacity, flock, active in sheds:
-        existing = conn.execute("SELECT id FROM sheds WHERE name = ?", (name,)).fetchone()
+        existing = conn.execute("SELECT id FROM sheds WHERE name = %s", (name,)).fetchone()
         if not existing:
             conn.execute(
-                "INSERT INTO sheds (name, capacity, flockNumber, active) VALUES (?, ?, ?, ?)",
+                "INSERT INTO sheds (name, capacity, flockNumber, active) VALUES (%s, %s, %s, %s)",
                 (name, capacity, flock, active),
             )
 
@@ -291,15 +291,15 @@ def _seed_shed_flock_metadata(conn):
         flock_number = shed["flockNumber"] or f"TEMP-FLOCK-{shed_id}"
         birth_date = seeded_birth_dates.get(shed_id, "2024-01-01")
         existing = conn.execute(
-            "SELECT id FROM shed_flock_metadata WHERE shedId = ?",
+            "SELECT id FROM shed_flock_metadata WHERE shedId = %s",
             (shed_id,),
         ).fetchone()
         if existing:
             conn.execute(
                 """
                 UPDATE shed_flock_metadata
-                SET flockNumber = ?, birthDate = ?, updatedAt = CURRENT_TIMESTAMP
-                WHERE shedId = ?
+                SET flockNumber = %s, birthDate = %s, updatedAt = CURRENT_TIMESTAMP
+                WHERE shedId = %s
                 """,
                 (flock_number, birth_date, shed_id),
             )
@@ -307,7 +307,7 @@ def _seed_shed_flock_metadata(conn):
             conn.execute(
                 """
                 INSERT INTO shed_flock_metadata (shedId, flockNumber, birthDate)
-                VALUES (?, ?, ?)
+                VALUES (%s, %s, %s)
                 """,
                 (shed_id, flock_number, birth_date),
             )
@@ -321,12 +321,12 @@ def _seed_email_recipients(conn):
     ]
     for email in recipients:
         existing = conn.execute(
-            "SELECT id FROM email_recipients WHERE email = ?",
+            "SELECT id FROM email_recipients WHERE email = %s",
             (email,),
         ).fetchone()
         if not existing:
             conn.execute(
-                "INSERT INTO email_recipients (email, active) VALUES (?, 1)",
+                "INSERT INTO email_recipients (email, active) VALUES (%s, 1)",
                 (email,),
             )
 
@@ -347,7 +347,7 @@ def _seed_smtp_settings(conn):
         """
         INSERT INTO smtp_settings (
           senderEmail, appPassword, smtpHost, smtpPort, useTls, active
-        ) VALUES (?, ?, ?, ?, ?, ?)
+        ) VALUES (%s, %s, %s, %s, %s, %s)
         """,
         (
             sender,

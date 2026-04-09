@@ -10,7 +10,7 @@ from db.connection import get_connection
 def login(phone: str, password: str):
     with get_connection() as conn:
         user = conn.execute(
-            "SELECT id, name, phone, passwordHash, role, createdAt FROM users WHERE phone = ?",
+            "SELECT id, name, phone, passwordHash, role, createdAt FROM users WHERE phone = %s",
             (phone,),
         ).fetchone()
 

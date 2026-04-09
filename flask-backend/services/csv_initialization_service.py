@@ -95,7 +95,7 @@ def _today_int() -> int:
 
 def _ensure_baseline_daily_report(conn, report_date: int) -> int:
     existing = conn.execute(
-        "SELECT id FROM daily_reports WHERE reportDate = ?", (report_date,)
+        "SELECT id FROM daily_reports WHERE reportDate = %s", (report_date,)
     ).fetchone()
     if existing:
         return int(existing["id"])
@@ -105,11 +105,12 @@ def _ensure_baseline_daily_report(conn, report_date: int) -> int:
     cur = conn.execute(
         """
         INSERT INTO daily_reports (reportDate, createdByUserId, status, submittedAt, createdAt, updatedAt)
-        VALUES (?, ?, 'LOCKED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES (%s, %s, 'LOCKED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        RETURNING id
         """,
         (report_date, int(user_row["id"])),
     )
-    return int(cur.lastrowid)
+    return int(cur.fetchone()["id"])
 
 
 def _replace_parties_if_allowed(conn) -> None:
@@ -126,18 +127,18 @@ def _replace_parties_if_allowed(conn) -> None:
 
 def _clear_reports_from_baseline(conn, baseline_date: int) -> None:
     report_rows = conn.execute(
-        "SELECT id FROM daily_reports WHERE reportDate >= ?",
+        "SELECT id FROM daily_reports WHERE reportDate >= %s",
         (baseline_date,),
     ).fetchall()
     report_ids = [int(row["id"]) for row in report_rows]
     if report_ids:
-        placeholders = ",".join("?" for _ in report_ids)
+        placeholders = ",".join("%s" for _ in report_ids)
         conn.execute(
             f"DELETE FROM daily_reports WHERE id IN ({placeholders})",
             report_ids,
         )
     conn.execute(
-        "DELETE FROM feed_item_daily_stock WHERE reportDate >= ?",
+        "DELETE FROM feed_item_daily_stock WHERE reportDate >= %s",
         (baseline_date,),
     )
 
@@ -160,7 +161,7 @@ def import_production_standards(conn, csv_path: str, dry_run: bool = False) -> I
             production_pct = _parse_float(prod_raw, "production_standard")
             feed_consumption = _parse_float(feed_consumption_raw, "feed_standard")
             existing = conn.execute(
-                "SELECT id, standardProductionPct, standardFeedConsumption FROM production_standards WHERE week = ?",
+                "SELECT id, standardProductionPct, standardFeedConsumption FROM production_standards WHERE week = %s",
                 (week,),
             ).fetchone()
             if existing:
@@ -173,8 +174,8 @@ def import_production_standards(conn, csv_path: str, dry_run: bool = False) -> I
                         conn.execute(
                             """
                             UPDATE production_standards
-                            SET standardProductionPct = ?, standardFeedConsumption = ?, updatedAt = CURRENT_TIMESTAMP
-                            WHERE id = ?
+                            SET standardProductionPct = %s, standardFeedConsumption = %s, updatedAt = CURRENT_TIMESTAMP
+                            WHERE id = %s
                             """,
                             (production_pct, feed_consumption, int(existing["id"])),
                         )
@@ -184,7 +185,7 @@ def import_production_standards(conn, csv_path: str, dry_run: bool = False) -> I
                     conn.execute(
                         """
                         INSERT INTO production_standards (week, standardProductionPct, standardFeedConsumption)
-                        VALUES (?, ?, ?)
+                        VALUES (%s, %s, %s)
                         """,
                         (week, production_pct, feed_consumption),
                     )
@@ -206,7 +207,7 @@ def import_parties(conn, csv_path: str, party_type: str, dry_run: bool = False) 
         phone = _get_row_value(row, ["phone", "contact", "mobile"])
         address = _get_row_value(row, ["address", "location"])
         existing = conn.execute(
-            "SELECT id, type, phone, address FROM parties WHERE lower(name) = lower(?)",
+            "SELECT id, type, phone, address FROM parties WHERE lower(name) = lower(%s)",
             (name,),
         ).fetchone()
         if existing:
@@ -222,8 +223,8 @@ def import_parties(conn, csv_path: str, party_type: str, dry_run: bool = False) 
                 conn.execute(
                     """
                     UPDATE parties
-                    SET type = ?, phone = ?, address = ?, updatedAt = CURRENT_TIMESTAMP
-                    WHERE id = ?
+                    SET type = %s, phone = %s, address = %s, updatedAt = CURRENT_TIMESTAMP
+                    WHERE id = %s
                     """,
                     (merged_type, phone or None, address or None, int(existing["id"])),
                 )
@@ -233,7 +234,7 @@ def import_parties(conn, csv_path: str, party_type: str, dry_run: bool = False) 
                 conn.execute(
                     """
                     INSERT INTO parties (name, type, phone, address)
-                    VALUES (?, ?, ?, ?)
+                    VALUES (%s, %s, %s, %s)
                     """,
                     (name, party_type, phone or None, address or None),
                 )
@@ -297,7 +298,7 @@ def import_feed_formulations(conn, csv_path: str, dry_run: bool = False) -> Impo
                 continue
             shed_id = shed_id_by_name.get(_norm_key(shed_col))
             existing = conn.execute(
-                "SELECT id, ratioPer1000Kg FROM feed_formulations WHERE shedId = ? AND feedItemId = ?",
+                "SELECT id, ratioPer1000Kg FROM feed_formulations WHERE shedId = %s AND feedItemId = %s",
                 (shed_id, item_id),
             ).fetchone()
             if existing:
@@ -308,8 +309,8 @@ def import_feed_formulations(conn, csv_path: str, dry_run: bool = False) -> Impo
                         conn.execute(
                             """
                             UPDATE feed_formulations
-                            SET ratioPer1000Kg = ?, updatedAt = CURRENT_TIMESTAMP
-                            WHERE id = ?
+                            SET ratioPer1000Kg = %s, updatedAt = CURRENT_TIMESTAMP
+                            WHERE id = %s
                             """,
                             (ratio, int(existing["id"])),
                         )
@@ -319,7 +320,7 @@ def import_feed_formulations(conn, csv_path: str, dry_run: bool = False) -> Impo
                     conn.execute(
                         """
                         INSERT INTO feed_formulations (shedId, feedItemId, ratioPer1000Kg)
-                        VALUES (?, ?, ?)
+                        VALUES (%s, %s, %s)
                         """,
                         (shed_id, item_id, ratio),
                     )
@@ -344,10 +345,10 @@ def apply_feed_closing_baseline(
         if not item_id:
             if not dry_run:
                 cur = conn.execute(
-                    "INSERT INTO feed_items (name, category) VALUES (?, 'INGREDIENT')",
+                    "INSERT INTO feed_items (name, category) VALUES (%s, 'INGREDIENT') RETURNING id",
                     (item_name,),
                 )
-                item_id = int(cur.lastrowid)
+                item_id = int(cur.fetchone()["id"])
             else:
                 item_id = -idx
             item_id_by_name[_norm_key(item_name)] = item_id
@@ -360,7 +361,7 @@ def apply_feed_closing_baseline(
         existing = conn.execute(
             """
             SELECT id, closingKg FROM feed_item_daily_stock
-            WHERE reportDate = ? AND feedItemId = ?
+            WHERE reportDate = %s AND feedItemId = %s
             """,
             (report_date, item_id),
         ).fetchone()
@@ -372,8 +373,8 @@ def apply_feed_closing_baseline(
                     conn.execute(
                         """
                         UPDATE feed_item_daily_stock
-                        SET openingKg = ?, receiptsKg = 0, usedKg = 0, closingKg = ?, updatedAt = CURRENT_TIMESTAMP
-                        WHERE id = ?
+                        SET openingKg = %s, receiptsKg = 0, usedKg = 0, closingKg = %s, updatedAt = CURRENT_TIMESTAMP
+                        WHERE id = %s
                         """,
                         (closing, closing, int(existing["id"])),
                     )
@@ -384,7 +385,7 @@ def apply_feed_closing_baseline(
                     """
                     INSERT INTO feed_item_daily_stock (
                       reportDate, feedItemId, openingKg, receiptsKg, usedKg, closingKg, createdAt, updatedAt
-                    ) VALUES (?, ?, ?, 0, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ) VALUES (%s, %s, %s, 0, 0, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     """,
                     (report_date, item_id, closing, closing),
                 )
@@ -435,7 +436,7 @@ def apply_shed_closing_baseline(
             """
             SELECT id, closingBirds, totalEggsClosing, feedClosing
             FROM shed_daily_reports
-            WHERE dailyReportId = ? AND shedId = ?
+            WHERE dailyReportId = %s AND shedId = %s
             """,
             (baseline_report_id, shed_id),
         ).fetchone()
@@ -452,15 +453,15 @@ def apply_shed_closing_baseline(
                         """
                         UPDATE shed_daily_reports
                         SET
-                          closingBirds = ?,
-                          standardEggsClosing = ?,
-                          smallEggsClosing = ?,
-                          bigEggsClosing = ?,
-                          totalEggsClosing = ?,
-                          feedClosing = ?,
-                          closingFeed = ?,
+                          closingBirds = %s,
+                          standardEggsClosing = %s,
+                          smallEggsClosing = %s,
+                          bigEggsClosing = %s,
+                          totalEggsClosing = %s,
+                          feedClosing = %s,
+                          closingFeed = %s,
                           updatedAt = CURRENT_TIMESTAMP
-                        WHERE id = ?
+                        WHERE id = %s
                         """,
                         (
                             closing_birds,
@@ -483,7 +484,7 @@ def apply_shed_closing_baseline(
                       standardEggsClosing, smallEggsClosing, bigEggsClosing,
                       feedOpening, feedIssued, feedClosing, feedConsumed, totalEggsClosing, eggsProduced,
                       totalFeedReceipt, closingFeed, createdAt, updatedAt
-                    ) VALUES (?, ?, ?, 0, ?, 0, 0, ?, ?, ?, ?, 0, ?, 0, ?, 0, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ) VALUES (%s, %s, %s, 0, %s, 0, 0, %s, %s, %s, %s, 0, %s, 0, %s, 0, 0, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     """,
                     (
                         baseline_report_id,
@@ -516,8 +517,6 @@ def run_csv_initialization(
     dry_run: bool = False,
 ) -> dict:
     with get_connection() as conn:
-        # For dry-run, execute real SQL mutations and rollback at the end so
-        # dependent steps see in-transaction data (e.g. newly created feed items).
         write_mode = True
         baseline_date = _today_int() if clear_from_baseline else _choose_baseline_date(conn)
         if clear_from_baseline:

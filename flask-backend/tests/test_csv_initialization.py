@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -14,7 +13,12 @@ class CsvInitializationCliTests(unittest.TestCase):
     def setUp(self) -> None:
         self.project_dir = Path(__file__).resolve().parents[1]
         self.temp_dir = Path(tempfile.mkdtemp(prefix="csv-init-test-"))
-        self.db_path = self.temp_dir / "test.sqlite"
+        self.db_url = os.environ.get(
+            "TEST_DATABASE_URL",
+            os.environ.get("DATABASE_URL", ""),
+        )
+        if not self.db_url:
+            self.skipTest("TEST_DATABASE_URL or DATABASE_URL must be set to run tests.")
         self.csv_paths = self._write_csvs()
 
     def _write_csvs(self) -> dict[str, str]:
@@ -97,7 +101,7 @@ class CsvInitializationCliTests(unittest.TestCase):
         if clear_from_baseline:
             cmd.append("--clear-from-baseline")
         env = os.environ.copy()
-        env["DATABASE"] = str(self.db_path)
+        env["DATABASE_URL"] = self.db_url
         completed = subprocess.run(
             cmd,
             cwd=self.project_dir,
@@ -108,6 +112,19 @@ class CsvInitializationCliTests(unittest.TestCase):
         )
         payload = json.loads(completed.stdout or "{}")
         return completed.returncode, payload
+
+    def _pg_execute(self, query: str, params: tuple = ()) -> list:
+        import psycopg
+        with psycopg.connect(self.db_url) as conn:
+            rows = conn.execute(query, params).fetchall()
+            conn.commit()
+        return rows
+
+    def _pg_execute_void(self, query: str, params: tuple = ()) -> None:
+        import psycopg
+        with psycopg.connect(self.db_url) as conn:
+            conn.execute(query, params)
+            conn.commit()
 
     def test_end_to_end_import_and_idempotency(self) -> None:
         first_code, first_payload = self._run_cli(dry_run=False)
@@ -136,15 +153,11 @@ class CsvInitializationCliTests(unittest.TestCase):
         self.assertGreaterEqual(payload["feedFormulations"]["inserted"], 1)
 
     def test_skip_seed_imports_only_csv_data(self) -> None:
-        # First run seeds schema defaults.
         code, _ = self._run_cli(dry_run=False, skip_seed=False)
         self.assertEqual(code, 0)
 
-        # Clear target data while keeping base refs like users/sheds for csv-only mode.
-        conn = sqlite3.connect(self.db_path)
-        conn.executescript(
+        self._pg_execute_void(
             """
-            PRAGMA foreign_keys = OFF;
             DELETE FROM sale_items;
             DELETE FROM sales;
             DELETE FROM feed_receipts;
@@ -155,11 +168,8 @@ class CsvInitializationCliTests(unittest.TestCase):
             DELETE FROM parties;
             DELETE FROM feed_items;
             DELETE FROM production_standards;
-            PRAGMA foreign_keys = ON;
             """
         )
-        conn.commit()
-        conn.close()
 
         code, payload = self._run_cli(dry_run=False, skip_seed=True)
         self.assertEqual(code, 0)
@@ -167,13 +177,10 @@ class CsvInitializationCliTests(unittest.TestCase):
         self.assertEqual(payload["sellers"]["inserted"], 1)
         self.assertEqual(payload["feedItems"]["inserted"], 1)
 
-        # Ensure seeded defaults were not reintroduced.
-        conn = sqlite3.connect(self.db_path)
-        row = conn.execute(
-            "SELECT COUNT(*) FROM feed_items WHERE name = 'Maize'"
-        ).fetchone()
-        conn.close()
-        self.assertEqual(int(row[0]), 0)
+        rows = self._pg_execute(
+            "SELECT COUNT(*) AS cnt FROM feed_items WHERE name = 'Maize'"
+        )
+        self.assertEqual(int(rows[0][0]), 0)
 
     def test_replace_parties_removes_seeded_parties(self) -> None:
         code, _ = self._run_cli(dry_run=False, skip_seed=False)
@@ -184,34 +191,34 @@ class CsvInitializationCliTests(unittest.TestCase):
         self.assertEqual(payload["buyers"]["errors"], [])
         self.assertEqual(payload["sellers"]["errors"], [])
 
-        conn = sqlite3.connect(self.db_path)
-        count_seeded = conn.execute(
-            "SELECT COUNT(*) FROM parties WHERE name = 'Prime Feed Suppliers'"
-        ).fetchone()[0]
-        count_buyer_csv = conn.execute(
-            "SELECT COUNT(*) FROM parties WHERE name = 'Buyer A'"
-        ).fetchone()[0]
-        conn.close()
-        self.assertEqual(int(count_seeded), 0)
-        self.assertEqual(int(count_buyer_csv), 1)
+        rows = self._pg_execute(
+            "SELECT COUNT(*) AS cnt FROM parties WHERE name = 'Prime Feed Suppliers'"
+        )
+        self.assertEqual(int(rows[0][0]), 0)
+        rows = self._pg_execute(
+            "SELECT COUNT(*) AS cnt FROM parties WHERE name = 'Buyer A'"
+        )
+        self.assertEqual(int(rows[0][0]), 1)
 
     def test_clear_from_baseline_recreates_clean_baseline(self) -> None:
         code, first_payload = self._run_cli(dry_run=False, skip_seed=False)
         self.assertEqual(code, 0)
         baseline_date = int(first_payload["baselineDate"])
 
-        # Create future report data to simulate user test entries.
-        conn = sqlite3.connect(self.db_path)
-        conn.executescript(
-            f"""
-            INSERT INTO daily_reports (reportDate, createdByUserId, status, submittedAt, createdAt, updatedAt)
-            VALUES ({baseline_date + 1}, 1, 'SUBMITTED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
-            INSERT INTO feed_item_daily_stock (reportDate, feedItemId, openingKg, receiptsKg, usedKg, closingKg, createdAt, updatedAt)
-            VALUES ({baseline_date + 1}, 1, 1, 1, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+        self._pg_execute_void(
             """
+            INSERT INTO daily_reports (reportDate, createdByUserId, status, submittedAt, createdAt, updatedAt)
+            VALUES (%s, 1, 'SUBMITTED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (baseline_date + 1,),
         )
-        conn.commit()
-        conn.close()
+        self._pg_execute_void(
+            """
+            INSERT INTO feed_item_daily_stock (reportDate, feedItemId, openingKg, receiptsKg, usedKg, closingKg, createdAt, updatedAt)
+            VALUES (%s, 1, 1, 1, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (baseline_date + 1,),
+        )
 
         code, second_payload = self._run_cli(
             dry_run=False,
@@ -222,23 +229,21 @@ class CsvInitializationCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         second_baseline = int(second_payload["baselineDate"])
 
-        conn = sqlite3.connect(self.db_path)
-        future_count = conn.execute(
-            "SELECT COUNT(*) FROM daily_reports WHERE reportDate > ?",
+        future_count = self._pg_execute(
+            "SELECT COUNT(*) FROM daily_reports WHERE reportDate > %s",
             (second_baseline,),
-        ).fetchone()[0]
-        baseline_count = conn.execute(
-            "SELECT COUNT(*) FROM daily_reports WHERE reportDate = ?",
+        )
+        baseline_count = self._pg_execute(
+            "SELECT COUNT(*) FROM daily_reports WHERE reportDate = %s",
             (second_baseline,),
-        ).fetchone()[0]
-        stale_count = conn.execute(
-            "SELECT COUNT(*) FROM daily_reports WHERE reportDate = ?",
+        )
+        stale_count = self._pg_execute(
+            "SELECT COUNT(*) FROM daily_reports WHERE reportDate = %s",
             (baseline_date + 1,),
-        ).fetchone()[0]
-        conn.close()
-        self.assertEqual(int(future_count), 0)
-        self.assertEqual(int(baseline_count), 1)
-        self.assertEqual(int(stale_count), 0)
+        )
+        self.assertEqual(int(future_count[0][0]), 0)
+        self.assertEqual(int(baseline_count[0][0]), 1)
+        self.assertEqual(int(stale_count[0][0]), 0)
 
 
 if __name__ == "__main__":

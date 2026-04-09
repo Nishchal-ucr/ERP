@@ -307,7 +307,7 @@ export function DailyReportDraftProvider({
     });
   };
 
-  const loadDraft = async (date: string) => {
+  const loadDraft = useCallback(async (date: string) => {
     setCurrentDate(date);
     const storedDraft = getDraftFromStorage(date);
     if (storedDraft) {
@@ -333,7 +333,7 @@ export function DailyReportDraftProvider({
         setDraft(emptyDraft);
       }
     }
-  };
+  }, []);
 
   const saveDraft = () => {
     if (draft) {

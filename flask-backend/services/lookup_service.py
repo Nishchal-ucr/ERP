@@ -19,7 +19,7 @@ def get_all(table_name: str):
 def get_by_id(table_name: str, item_id: int):
     with get_connection() as conn:
         row = conn.execute(
-            f"SELECT * FROM {table_name} WHERE id = ?",
+            f"SELECT * FROM {table_name} WHERE id = %s",
             (item_id,),
         ).fetchone()
     return _row_to_dict(row)
@@ -38,7 +38,7 @@ def get_parties_by_role(role: str):
             """
             SELECT *
             FROM parties
-            WHERE type IN (?, ?)
+            WHERE type IN (%s, %s)
             ORDER BY name
             """,
             allowed,
@@ -84,7 +84,7 @@ def get_feed_formulation_by_id(item_id: int):
             FROM feed_formulations ff
             LEFT JOIN sheds sh ON sh.id = ff.shedId
             LEFT JOIN feed_items fi ON fi.id = ff.feedItemId
-            WHERE ff.id = ?
+            WHERE ff.id = %s
             """,
             (item_id,),
         ).fetchone()

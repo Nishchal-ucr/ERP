@@ -49,7 +49,7 @@ def _get_report_with_user(conn, report_id: int):
           u.createdAt AS user_createdAt
         FROM daily_reports dr
         LEFT JOIN users u ON u.id = dr.createdByUserId
-        WHERE dr.id = ?
+        WHERE dr.id = %s
         """,
         (report_id,),
     ).fetchone()
@@ -62,7 +62,7 @@ def _get_report_with_user(conn, report_id: int):
         "name": report.pop("user_name"),
         "phone": report.pop("user_phone"),
         "role": report.pop("user_role"),
-        "createdAt": report.pop("user_createdAt"),
+        "createdAt": report.pop("user_createdat"),
     }
     return report
 
@@ -81,7 +81,7 @@ def _load_sales(conn, daily_report_id: int):
           p.updatedAt AS party_updatedAt
         FROM sales s
         LEFT JOIN parties p ON p.id = s.partyId
-        WHERE s.dailyReportId = ?
+        WHERE s.dailyReportId = %s
         """,
         (daily_report_id,),
     ).fetchall()
@@ -89,7 +89,7 @@ def _load_sales(conn, daily_report_id: int):
         return []
 
     sale_ids = [row["id"] for row in sales]
-    placeholders = ",".join("?" for _ in sale_ids)
+    placeholders = ",".join("%s" for _ in sale_ids)
     sale_items = conn.execute(
         f"""
         SELECT
@@ -117,8 +117,8 @@ def _load_sales(conn, daily_report_id: int):
             "type": sale_dict.pop("party_type"),
             "phone": sale_dict.pop("party_phone"),
             "address": sale_dict.pop("party_address"),
-            "createdAt": sale_dict.pop("party_createdAt"),
-            "updatedAt": sale_dict.pop("party_updatedAt"),
+            "createdAt": sale_dict.pop("party_createdat"),
+            "updatedAt": sale_dict.pop("party_updatedat"),
         }
         items = []
         for item in sale_items:
@@ -129,10 +129,10 @@ def _load_sales(conn, daily_report_id: int):
                 "id": item_dict.pop("shed_id"),
                 "name": item_dict.pop("shed_name"),
                 "capacity": item_dict.pop("shed_capacity"),
-                "flockNumber": item_dict.pop("shed_flockNumber"),
+                "flockNumber": item_dict.pop("shed_flocknumber"),
                 "active": bool(item_dict.pop("shed_active")),
-                "createdAt": item_dict.pop("shed_createdAt"),
-                "updatedAt": item_dict.pop("shed_updatedAt"),
+                "createdAt": item_dict.pop("shed_createdat"),
+                "updatedAt": item_dict.pop("shed_updatedat"),
             }
             items.append(item_dict)
         sale_dict["items"] = items
@@ -160,7 +160,7 @@ def _load_feed_receipts(conn, daily_report_id: int):
         FROM feed_receipts fr
         LEFT JOIN parties p ON p.id = fr.partyId
         LEFT JOIN feed_items fi ON fi.id = fr.feedItemId
-        WHERE fr.dailyReportId = ?
+        WHERE fr.dailyReportId = %s
         """,
         (daily_report_id,),
     ).fetchall()
@@ -174,15 +174,15 @@ def _load_feed_receipts(conn, daily_report_id: int):
             "type": obj.pop("party_type"),
             "phone": obj.pop("party_phone"),
             "address": obj.pop("party_address"),
-            "createdAt": obj.pop("party_createdAt"),
-            "updatedAt": obj.pop("party_updatedAt"),
+            "createdAt": obj.pop("party_createdat"),
+            "updatedAt": obj.pop("party_updatedat"),
         }
         obj["feedItem"] = {
-            "id": obj.pop("feedItem_id"),
-            "name": obj.pop("feedItem_name"),
-            "category": obj.pop("feedItem_category"),
-            "createdAt": obj.pop("feedItem_createdAt"),
-            "updatedAt": obj.pop("feedItem_updatedAt"),
+            "id": obj.pop("feeditem_id"),
+            "name": obj.pop("feeditem_name"),
+            "category": obj.pop("feeditem_category"),
+            "createdAt": obj.pop("feeditem_createdat"),
+            "updatedAt": obj.pop("feeditem_updatedat"),
         }
         mapped.append(obj)
     return mapped
@@ -202,7 +202,7 @@ def _load_shed_daily_reports(conn, daily_report_id: int):
           sh.updatedAt AS shed_updatedAt
         FROM shed_daily_reports sdr
         LEFT JOIN sheds sh ON sh.id = sdr.shedId
-        WHERE sdr.dailyReportId = ?
+        WHERE sdr.dailyReportId = %s
         """,
         (daily_report_id,),
     ).fetchall()
@@ -214,10 +214,10 @@ def _load_shed_daily_reports(conn, daily_report_id: int):
             "id": obj.pop("shed_id"),
             "name": obj.pop("shed_name"),
             "capacity": obj.pop("shed_capacity"),
-            "flockNumber": obj.pop("shed_flockNumber"),
+            "flockNumber": obj.pop("shed_flocknumber"),
             "active": bool(obj.pop("shed_active")),
-            "createdAt": obj.pop("shed_createdAt"),
-            "updatedAt": obj.pop("shed_updatedAt"),
+            "createdAt": obj.pop("shed_createdat"),
+            "updatedAt": obj.pop("shed_updatedat"),
         }
         mapped.append(obj)
     return mapped
@@ -257,7 +257,7 @@ def list_daily_reports():
             "name": item.pop("user_name"),
             "phone": item.pop("user_phone"),
             "role": item.pop("user_role"),
-            "createdAt": item.pop("user_createdAt"),
+            "createdAt": item.pop("user_createdat"),
         }
         output.append(item)
     return output
@@ -275,7 +275,7 @@ def get_daily_report_by_date(date_string: str):
     report_date = parse_iso_date_to_yyyymmdd(date_string)
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id FROM daily_reports WHERE reportDate = ?",
+            "SELECT id FROM daily_reports WHERE reportDate = %s",
             (report_date,),
         ).fetchone()
         if not row:
@@ -289,17 +289,18 @@ def _insert_sales(conn, daily_report_id: int, sales):
         cur = conn.execute(
             """
             INSERT INTO sales (dailyReportId, partyId, vehicleNumber, createdAt, updatedAt)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            RETURNING id
             """,
             (daily_report_id, sale["partyId"], sale.get("vehicleNumber")),
         )
-        sale_id = cur.lastrowid
+        sale_id = cur.fetchone()["id"]
         for item in sale.get("items", []):
             conn.execute(
                 """
                 INSERT INTO sale_items (
                   saleId, shedId, standardEggs, smallEggs, bigEggs, loadingDamage, createdAt, updatedAt
-                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ) VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """,
                 (
                     sale_id,
@@ -318,7 +319,7 @@ def _insert_feed_receipts(conn, daily_report_id: int, receipts):
             """
             INSERT INTO feed_receipts (
               dailyReportId, partyId, feedItemId, vehicleNumber, quantityKg, createdAt, updatedAt
-            ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ) VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """,
             (
                 daily_report_id,
@@ -341,7 +342,7 @@ def _insert_shed_daily_reports(conn, daily_report_id: int, reports):
               standardEggsClosing, smallEggsClosing, bigEggsClosing,
               feedOpening, feedIssued, feedClosing, feedConsumed, totalEggsClosing, eggsProduced,
               totalFeedReceipt, closingFeed, createdAt, updatedAt
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """,
             (
                 daily_report_id,
@@ -360,7 +361,6 @@ def _insert_shed_daily_reports(conn, daily_report_id: int, reports):
                 item.get("feedConsumed"),
                 item.get("totalEggsClosing"),
                 item.get("eggsProduced"),
-                # Keep legacy columns populated for compatibility.
                 feed_issued,
                 feed_closing,
             ),
@@ -379,7 +379,7 @@ def _validate_party_roles(conn, payload: dict) -> None:
     if not all_ids:
         return
 
-    placeholders = ",".join("?" for _ in all_ids)
+    placeholders = ",".join("%s" for _ in all_ids)
     rows = conn.execute(
         f"SELECT id, type FROM parties WHERE id IN ({placeholders})",
         all_ids,
@@ -420,7 +420,7 @@ def _recalculate_feed_item_daily_stock(conn, daily_report_id: int, report_date: 
         INNER JOIN (
           SELECT feedItemId, MAX(reportDate) AS maxReportDate
           FROM feed_item_daily_stock
-          WHERE reportDate < ?
+          WHERE reportDate < %s
           GROUP BY feedItemId
         ) p
           ON p.feedItemId = s.feedItemId
@@ -436,7 +436,7 @@ def _recalculate_feed_item_daily_stock(conn, daily_report_id: int, report_date: 
         """
         SELECT feedItemId, SUM(quantityKg) AS receiptsKg
         FROM feed_receipts
-        WHERE dailyReportId = ?
+        WHERE dailyReportId = %s
         GROUP BY feedItemId
         """,
         (daily_report_id,),
@@ -449,12 +449,12 @@ def _recalculate_feed_item_daily_stock(conn, daily_report_id: int, report_date: 
         """
         SELECT shedId, SUM(feedIssued) AS issuedKg
         FROM shed_daily_reports
-        WHERE dailyReportId = ?
+        WHERE dailyReportId = %s
         GROUP BY shedId
         """,
         (daily_report_id,),
     ).fetchall()
-    issued_by_shed = {int(row["shedId"]): float(row["issuedKg"] or 0) for row in issued_rows}
+    issued_by_shed = {int(row["shedId"]): float(row["issuedkg"] or 0) for row in issued_rows}
 
     formulation_rows = conn.execute(
         "SELECT shedId, feedItemId, ratioPer1000Kg FROM feed_formulations"
@@ -475,15 +475,15 @@ def _recalculate_feed_item_daily_stock(conn, daily_report_id: int, report_date: 
         used = float(used_by_item.get(item_id, 0))
         closing = opening + receipts - used
         existing = conn.execute(
-            "SELECT id FROM feed_item_daily_stock WHERE reportDate = ? AND feedItemId = ?",
+            "SELECT id FROM feed_item_daily_stock WHERE reportDate = %s AND feedItemId = %s",
             (report_date, item_id),
         ).fetchone()
         if existing:
             conn.execute(
                 """
                 UPDATE feed_item_daily_stock
-                SET openingKg = ?, receiptsKg = ?, usedKg = ?, closingKg = ?, updatedAt = CURRENT_TIMESTAMP
-                WHERE id = ?
+                SET openingKg = %s, receiptsKg = %s, usedKg = %s, closingKg = %s, updatedAt = CURRENT_TIMESTAMP
+                WHERE id = %s
                 """,
                 (opening, receipts, used, closing, existing["id"]),
             )
@@ -492,7 +492,7 @@ def _recalculate_feed_item_daily_stock(conn, daily_report_id: int, report_date: 
                 """
                 INSERT INTO feed_item_daily_stock (
                   reportDate, feedItemId, openingKg, receiptsKg, usedKg, closingKg, createdAt, updatedAt
-                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ) VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """,
                 (report_date, item_id, opening, receipts, used, closing),
             )
@@ -503,7 +503,7 @@ def submit_daily_report(payload):
     with get_connection() as conn:
         _validate_party_roles(conn, payload)
         existing = conn.execute(
-            "SELECT id FROM daily_reports WHERE reportDate = ?",
+            "SELECT id FROM daily_reports WHERE reportDate = %s",
             (report_date,),
         ).fetchone()
         if existing:
@@ -514,11 +514,12 @@ def submit_daily_report(payload):
         cur = conn.execute(
             """
             INSERT INTO daily_reports (reportDate, createdByUserId, status, submittedAt, createdAt, updatedAt)
-            VALUES (?, ?, 'SUBMITTED', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            VALUES (%s, %s, 'SUBMITTED', %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            RETURNING id
             """,
             (report_date, payload["submitterId"], _now_iso()),
         )
-        report_id = cur.lastrowid
+        report_id = cur.fetchone()["id"]
 
         _insert_sales(conn, report_id, payload.get("sales"))
         _insert_feed_receipts(conn, report_id, payload.get("feedReceipts"))
@@ -526,7 +527,7 @@ def submit_daily_report(payload):
         _recalculate_feed_item_daily_stock(conn, report_id, report_date)
         conn.commit()
 
-        row = conn.execute("SELECT * FROM daily_reports WHERE id = ?", (report_id,)).fetchone()
+        row = conn.execute("SELECT * FROM daily_reports WHERE id = %s", (report_id,)).fetchone()
         response = _dict_or_none(row)
 
     full_report = get_daily_report_with_details(report_id)
@@ -541,7 +542,7 @@ def update_daily_report(payload):
     with get_connection() as conn:
         _validate_party_roles(conn, payload)
         report = conn.execute(
-            "SELECT * FROM daily_reports WHERE reportDate = ?",
+            "SELECT * FROM daily_reports WHERE reportDate = %s",
             (report_date,),
         ).fetchone()
         if not report:
@@ -555,14 +556,14 @@ def update_daily_report(payload):
         conn.execute(
             """
             UPDATE daily_reports
-            SET status = 'SUBMITTED', submittedAt = ?, createdByUserId = ?, updatedAt = CURRENT_TIMESTAMP
-            WHERE id = ?
+            SET status = 'SUBMITTED', submittedAt = %s, createdByUserId = %s, updatedAt = CURRENT_TIMESTAMP
+            WHERE id = %s
             """,
             (_now_iso(), payload["submitterId"], report["id"]),
         )
-        conn.execute("DELETE FROM sales WHERE dailyReportId = ?", (report["id"],))
-        conn.execute("DELETE FROM feed_receipts WHERE dailyReportId = ?", (report["id"],))
-        conn.execute("DELETE FROM shed_daily_reports WHERE dailyReportId = ?", (report["id"],))
+        conn.execute("DELETE FROM sales WHERE dailyReportId = %s", (report["id"],))
+        conn.execute("DELETE FROM feed_receipts WHERE dailyReportId = %s", (report["id"],))
+        conn.execute("DELETE FROM shed_daily_reports WHERE dailyReportId = %s", (report["id"],))
 
         _insert_sales(conn, report["id"], payload.get("sales"))
         _insert_feed_receipts(conn, report["id"], payload.get("feedReceipts"))
@@ -571,7 +572,7 @@ def update_daily_report(payload):
         conn.commit()
 
         updated = conn.execute(
-            "SELECT * FROM daily_reports WHERE id = ?",
+            "SELECT * FROM daily_reports WHERE id = %s",
             (report["id"],),
         ).fetchone()
         response = _dict_or_none(updated)

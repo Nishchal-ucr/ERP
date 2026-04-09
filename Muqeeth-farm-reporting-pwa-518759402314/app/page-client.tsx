@@ -7,15 +7,21 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@/components/ui/input-group";
-import { submitDailyReport, updateDailyReport } from "@/lib/api";
+import { getAllDailyReports, submitDailyReport, updateDailyReport } from "@/lib/api";
 import { useAppData } from "@/lib/app-data-context";
 import { useAuth } from "@/lib/auth-context";
 import { useDailyReportDraft } from "@/lib/daily-report-draft-context";
+import {
+  clampIsoDate,
+  todayIsoLocal,
+  yyyymmddToIso,
+} from "@/lib/date-utils";
+import { isReportDateBoundsRelaxed } from "@/lib/report-date-bounds-config";
 import { ApiError } from "@/lib/types";
 import { CalendarIcon, LogOutIcon } from "lucide-react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type PageClientProps = {
   initialDate: string;
@@ -26,17 +32,49 @@ const isValidDate = (value: string) => {
 };
 
 export default function PageClient({ initialDate }: PageClientProps) {
+  const relaxedBounds = isReportDateBoundsRelaxed();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitWarning, setSubmitWarning] = useState<string | null>(null);
+  const [dateBounds, setDateBounds] = useState<{ min: string } | null>(() =>
+    isReportDateBoundsRelaxed() ? { min: "1970-01-01" } : null,
+  );
 
   const dateParam = searchParams?.get("date");
-  const date = dateParam && isValidDate(dateParam) ? dateParam : initialDate;
+  const maxSelectable = todayIsoLocal();
+  const rawDate =
+    dateParam && isValidDate(dateParam) ? dateParam : initialDate;
+  const date = relaxedBounds
+    ? isValidDate(rawDate)
+      ? rawDate
+      : maxSelectable
+    : dateBounds != null
+      ? clampIsoDate(
+          isValidDate(rawDate) ? rawDate : maxSelectable,
+          dateBounds.min,
+          maxSelectable,
+        )
+      : rawDate;
 
   const { user, logout, isLoading } = useAuth();
   const { draft, loadDraft, clearDraft, setSyncStatus } = useDailyReportDraft();
   const { sheds } = useAppData();
+
+  const refreshDateBounds = useCallback(async () => {
+    if (isReportDateBoundsRelaxed()) return;
+    try {
+      const reports = await getAllDailyReports();
+      if (reports.length === 0) {
+        setDateBounds({ min: todayIsoLocal() });
+      } else {
+        const maxYyyymmdd = Math.max(...reports.map((r) => r.reportDate));
+        setDateBounds({ min: yyyymmddToIso(maxYyyymmdd) });
+      }
+    } catch {
+      setDateBounds({ min: todayIsoLocal() });
+    }
+  }, []);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -45,16 +83,50 @@ export default function PageClient({ initialDate }: PageClientProps) {
   }, [user, isLoading, router]);
 
   useEffect(() => {
-    const paramDate = searchParams?.get("date");
+    if (!user || isLoading) return;
+    if (isReportDateBoundsRelaxed()) return;
+    void refreshDateBounds();
+  }, [user, isLoading, refreshDateBounds]);
 
-    if (!paramDate || !isValidDate(paramDate)) {
-      router.replace(`/?date=${initialDate}`);
-      loadDraft(initialDate);
+  useEffect(() => {
+    if (!user || isLoading) return;
+
+    if (isReportDateBoundsRelaxed()) {
+      const paramRaw = searchParams?.get("date") ?? null;
+      if (!paramRaw || !isValidDate(paramRaw)) {
+        const fallback = isValidDate(initialDate) ? initialDate : todayIsoLocal();
+        router.replace(`/?date=${fallback}`);
+        return;
+      }
+      loadDraft(paramRaw);
       return;
     }
 
-    loadDraft(paramDate);
-  }, [searchParams, router, initialDate]);
+    if (!dateBounds) return;
+
+    const maxSel = todayIsoLocal();
+    const minSelectable = dateBounds.min;
+    const paramRaw = searchParams?.get("date") ?? null;
+    const base =
+      paramRaw && isValidDate(paramRaw) ? paramRaw : initialDate;
+    const validBase = isValidDate(base) ? base : maxSel;
+    const clamped = clampIsoDate(validBase, minSelectable, maxSel);
+
+    if (clamped !== paramRaw) {
+      router.replace(`/?date=${clamped}`);
+      return;
+    }
+
+    loadDraft(clamped);
+  }, [
+    user,
+    isLoading,
+    dateBounds,
+    searchParams,
+    router,
+    initialDate,
+    loadDraft,
+  ]);
 
   const hasSalesData = !!(
     draft &&
@@ -110,6 +182,9 @@ export default function PageClient({ initialDate }: PageClientProps) {
         setSubmitWarning(warningMessage);
       }
       alert("Report submitted successfully!");
+      if (!isReportDateBoundsRelaxed()) {
+        await refreshDateBounds();
+      }
       router.replace(`/?date=${date}`);
     } catch (error) {
       console.error("Failed to submit report:", error);
@@ -132,6 +207,14 @@ export default function PageClient({ initialDate }: PageClientProps) {
 
   if (!user) {
     return null;
+  }
+
+  if (!relaxedBounds && !dateBounds) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        Loading...
+      </div>
+    );
   }
 
   return (
@@ -178,11 +261,26 @@ export default function PageClient({ initialDate }: PageClientProps) {
                 <InputGroupInput
                   id="date"
                   type="date"
+                  {...(relaxedBounds
+                    ? {}
+                    : {
+                        min: dateBounds!.min,
+                        max: maxSelectable,
+                      })}
                   value={date}
                   onChange={(e) => {
                     const newDate = e.target.value;
                     if (!isValidDate(newDate)) return;
-                    router.replace(`/?date=${newDate}`);
+                    if (relaxedBounds) {
+                      router.replace(`/?date=${newDate}`);
+                      return;
+                    }
+                    const clamped = clampIsoDate(
+                      newDate,
+                      dateBounds!.min,
+                      maxSelectable,
+                    );
+                    router.replace(`/?date=${clamped}`);
                   }}
                 />
                 <InputGroupAddon align="inline-end">

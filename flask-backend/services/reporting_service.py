@@ -143,7 +143,7 @@ def _load_previous_shed_map(report_date_yyyymmdd: int) -> Dict[int, dict]:
     prev_int = int(prev.strftime("%Y%m%d"))
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id FROM daily_reports WHERE reportDate = ?",
+            "SELECT id FROM daily_reports WHERE reportDate = %s",
             (prev_int,),
         ).fetchone()
         if not row:
@@ -151,7 +151,7 @@ def _load_previous_shed_map(report_date_yyyymmdd: int) -> Dict[int, dict]:
         rows = conn.execute(
             """
             SELECT shedId, closingBirds, birdsMortality, totalEggsClosing, feedClosing, closingFeed, eggsProduced
-            FROM shed_daily_reports WHERE dailyReportId = ?
+            FROM shed_daily_reports WHERE dailyReportId = %s
             """,
             (row["id"],),
         ).fetchall()
@@ -465,7 +465,7 @@ def _build_report2_matrix(report_payload: dict) -> Tuple[List[str], List[List[st
             """
             SELECT feedItemId, openingKg, receiptsKg, usedKg, closingKg
             FROM feed_item_daily_stock
-            WHERE reportDate = ?
+            WHERE reportDate = %s
             """,
             (report_date,),
         ).fetchall()
@@ -592,7 +592,7 @@ def _build_warning_messages(report_payload: dict, per_shed: List[dict]) -> List[
     report_date = int(report_payload.get("reportDate") or 0)
     shed_ids = [int(s["shed"]["id"]) for s in (report_payload.get("shedDailyReports", []) or [])]
     if shed_ids:
-        placeholders = ",".join("?" for _ in shed_ids)
+        placeholders = ",".join("%s" for _ in shed_ids)
         with get_connection() as conn:
             formulations = conn.execute(
                 f"""
@@ -607,7 +607,7 @@ def _build_warning_messages(report_payload: dict, per_shed: List[dict]) -> List[
                 SELECT fis.feedItemId, fis.closingKg, fi.name
                 FROM feed_item_daily_stock fis
                 JOIN feed_items fi ON fi.id = fis.feedItemId
-                WHERE fis.reportDate = ?
+                WHERE fis.reportDate = %s
                 """,
                 (report_date,),
             ).fetchall()
