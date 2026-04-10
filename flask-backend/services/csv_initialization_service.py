@@ -13,6 +13,7 @@ class ImportStats:
     inserted: int = 0
     updated: int = 0
     skipped: int = 0
+    removed: int = 0
     errors: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -20,6 +21,7 @@ class ImportStats:
             "inserted": self.inserted,
             "updated": self.updated,
             "skipped": self.skipped,
+            "removed": self.removed,
             "errors": list(self.errors),
         }
 
@@ -393,6 +395,79 @@ def apply_feed_closing_baseline(
     return stats, feed_item_stats
 
 
+def _allowed_feed_item_keys_from_csvs(feed_closing_csv: str, formulations_csv: str) -> set[str]:
+    """Normalized name keys union of feed_closing_stock + feed_formulations item column."""
+    keys: set[str] = set()
+    for row in _read_csv_rows(feed_closing_csv):
+        item_name = _get_row_value(row, ["feed_name", "feed_item", "name", "feed"])
+        if item_name:
+            keys.add(_norm_key(item_name))
+    rows = _read_csv_rows(formulations_csv)
+    if not rows:
+        return keys
+    first_row_keys = list(rows[0].keys())
+    item_col = ""
+    for key in first_row_keys:
+        if _norm_key(key) in {"itemname", "feedname", "feeditem", "item"}:
+            item_col = key
+            break
+    if not item_col:
+        return keys
+    for row in rows:
+        item_name = _norm(row.get(item_col))
+        item_key = _norm_key(item_name)
+        if not item_name:
+            continue
+        if item_key in {"medicines", "medicine", "ingredients", "ingredient", "total"}:
+            continue
+        try:
+            float(item_name)
+            continue
+        except ValueError:
+            pass
+        keys.add(item_key)
+    return keys
+
+
+def prune_feed_items_not_in_csvs(
+    conn,
+    feed_closing_csv: str,
+    formulations_csv: str,
+    dry_run: bool = False,
+) -> ImportStats:
+    """
+    Remove feed_items rows whose names are not listed in the feed closing or formulations CSVs.
+    Skips items referenced by feed_receipts (must delete receipts first).
+    """
+    stats = ImportStats()
+    allowed = _allowed_feed_item_keys_from_csvs(feed_closing_csv, formulations_csv)
+    rows = conn.execute("SELECT id, name FROM feed_items").fetchall()
+    for row in rows:
+        fid = int(row["id"])
+        name = str(row["name"])
+        key = _norm_key(name)
+        if key in allowed:
+            stats.skipped += 1
+            continue
+        n_receipts = int(
+            conn.execute(
+                "SELECT COUNT(*) AS c FROM feed_receipts WHERE feedItemId = %s",
+                (fid,),
+            ).fetchone()["c"]
+        )
+        if n_receipts > 0:
+            stats.errors.append(
+                f"Cannot prune feed item '{name}' (id={fid}): {n_receipts} feed receipt(s) reference it."
+            )
+            continue
+        if not dry_run:
+            conn.execute("DELETE FROM feed_formulations WHERE feedItemId = %s", (fid,))
+            conn.execute("DELETE FROM feed_item_daily_stock WHERE feedItemId = %s", (fid,))
+            conn.execute("DELETE FROM feed_items WHERE id = %s", (fid,))
+        stats.removed += 1
+    return stats
+
+
 def apply_shed_closing_baseline(
     conn, csv_path: str, report_date: int, dry_run: bool = False
 ) -> tuple[ImportStats, int]:
@@ -514,6 +589,7 @@ def run_csv_initialization(
     shed_closing_csv: str,
     replace_parties: bool = False,
     clear_from_baseline: bool = False,
+    prune_orphan_feed_items: bool = False,
     dry_run: bool = False,
 ) -> dict:
     with get_connection() as conn:
@@ -534,6 +610,14 @@ def run_csv_initialization(
         formulation_stats = import_feed_formulations(
             conn, formulations_csv, dry_run=not write_mode
         )
+        prune_stats = ImportStats()
+        if prune_orphan_feed_items:
+            prune_stats = prune_feed_items_not_in_csvs(
+                conn,
+                feed_closing_csv,
+                formulations_csv,
+                dry_run=not write_mode,
+            )
         shed_closing_stats, baseline_report_id = apply_shed_closing_baseline(
             conn, shed_closing_csv, baseline_date, dry_run=not write_mode
         )
@@ -551,6 +635,7 @@ def run_csv_initialization(
         "sellers": seller_stats.as_dict(),
         "feedFormulations": formulation_stats.as_dict(),
         "feedClosingStock": feed_closing_stats.as_dict(),
+        "prunedFeedItems": prune_stats.as_dict(),
         "shedsClosingValues": shed_closing_stats.as_dict(),
     }
     return result

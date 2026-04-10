@@ -42,6 +42,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Delete reports and stock from baseline date onward before importing baseline.",
     )
     parser.add_argument(
+        "--prune-orphan-feed-items",
+        action="store_true",
+        help=(
+            "Remove feed_items rows not listed in --feed-closing or --formulations CSVs. "
+            "Skips rows still referenced by feed_receipts. Use after --clear-from-baseline "
+            "if receipts were cleared, to align the DB with CSV masters."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Validate and simulate import without writing to DB.",
@@ -64,6 +73,7 @@ def main() -> int:
             shed_closing_csv=args.shed_closing,
             replace_parties=args.replace_parties,
             clear_from_baseline=args.clear_from_baseline,
+            prune_orphan_feed_items=args.prune_orphan_feed_items,
             dry_run=args.dry_run,
         )
         print(json.dumps(result, indent=2))

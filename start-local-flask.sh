@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FLASK_DIR="${ROOT_DIR}/flask-backend"
-PWA_DIR="${ROOT_DIR}/Muqeeth-farm-reporting-pwa-518759402314"
+PWA_DIR="${ROOT_DIR}/PMR-farm-reporting-pwa"
 VENV_DIR="${FLASK_DIR}/.venv"
 
 if [[ ! -d "${FLASK_DIR}" || ! -d "${PWA_DIR}" ]]; then

@@ -58,6 +58,7 @@ _CAMELCASE_MAP: dict[str, str] = {
     "closingfeed": "closingFeed",
     "maxdate": "maxDate",
     "maxreportdate": "maxReportDate",
+    "shedname": "shedName",
 }
 
 

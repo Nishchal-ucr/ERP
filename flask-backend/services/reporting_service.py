@@ -295,7 +295,6 @@ def _build_report1_matrix(report_payload: dict) -> Tuple[List[str], List[List[st
 
     row_def = [
         ("Flock No", "flockNo", "text"),
-        ("Shed", "shed", "text"),
         ("Shed Capacity", "shedCapacity", "int"),
         ("Age", "age", "text"),
         ("Opening Birds", "openingBirds", "int"),
@@ -547,6 +546,80 @@ def _build_report2_matrix(report_payload: dict) -> Tuple[List[str], List[List[st
     total_row.append(_format_number(totals["used"], 2))
     total_row.append(_format_number(totals["closing"], 2))
     matrix.append(total_row)
+    return columns, matrix
+
+
+def _build_sales_detail_matrix(report_payload: dict) -> Tuple[List[str], List[List[str]]]:
+    columns = [
+        "Party",
+        "Vehicle No.",
+        "Standard eggs",
+        "Big eggs",
+        "Small eggs",
+        "Total eggs",
+        "Loading damage",
+    ]
+    matrix: List[List[str]] = []
+    for sale in report_payload.get("sales") or []:
+        party_name = str((sale.get("party") or {}).get("name") or "")
+        vehicle = str(sale.get("vehicleNumber") or "")
+        std = 0.0
+        big = 0.0
+        small = 0.0
+        dmg = 0.0
+        for item in sale.get("items") or []:
+            std += float(item.get("standardEggs") or 0)
+            big += float(item.get("bigEggs") or 0)
+            small += float(item.get("smallEggs") or 0)
+            dmg += float(item.get("loadingDamage") or 0)
+        total_eggs = std + big + small
+        matrix.append(
+            [
+                party_name,
+                vehicle,
+                _format_number(std, 0),
+                _format_number(big, 0),
+                _format_number(small, 0),
+                _format_number(total_eggs, 0),
+                _format_number(dmg, 0),
+            ]
+        )
+    if not matrix:
+        matrix.append(["No sales", "—", "—", "—", "—", "—", "—"])
+    return columns, matrix
+
+
+def _build_feed_receipts_detail_matrix(report_payload: dict) -> Tuple[List[str], List[List[str]]]:
+    columns = ["Item name", "Party", "Vehicle No.", "Net weight (kg)"]
+    receipts = list(report_payload.get("feedReceipts") or [])
+
+    def _sort_key(r: dict) -> Tuple[str, str, str]:
+        fi = r.get("feedItem") or {}
+        p = r.get("party") or {}
+        return (
+            str(fi.get("name") or ""),
+            str(p.get("name") or ""),
+            str(r.get("vehicleNumber") or ""),
+        )
+
+    receipts.sort(key=_sort_key)
+    matrix: List[List[str]] = []
+    for fr in receipts:
+        item_name = str((fr.get("feedItem") or {}).get("name") or "")
+        party_name = str((fr.get("party") or {}).get("name") or "")
+        vehicle = str(fr.get("vehicleNumber") or "")
+        qty = fr.get("quantityKg")
+        qf = float(qty) if qty is not None else None
+        matrix.append(
+            [
+                item_name,
+                party_name,
+                vehicle,
+                _format_number(qf, 2),
+            ]
+        )
+    if not matrix:
+        matrix.append(["No feed receipts", "—", "—", "—"])
     return columns, matrix
 
 
@@ -803,13 +876,22 @@ def _draw_table_section(
     columns: List[str],
     matrix: List[List[str]],
     highlight_rows: Optional[Set[str]] = None,
+    highlight_row_colors: Optional[Dict[str, str]] = None,
     report_date: Optional[str] = None,
     two_line_feed_headers: bool = False,
+    center_align: bool = False,
+    row_height: Optional[int] = None,
+    compact: bool = False,
 ) -> float:
     left = 24
     table_width = width - 48
-    row_height = 18
-    header_row_height = 28 if two_line_feed_headers else 18
+    if row_height is not None:
+        effective_row_height = row_height
+    elif compact and center_align:
+        effective_row_height = 17
+    else:
+        effective_row_height = 20 if center_align else 18
+    header_row_height = 28 if two_line_feed_headers else effective_row_height
     first_col_width = max(120, int(table_width * 0.16))
     other_count = max(1, len(columns) - 1)
     other_col_width = max(68, int((table_width - first_col_width) / other_count))
@@ -817,6 +899,7 @@ def _draw_table_section(
     used_width = sum(col_widths)
     col_widths[-1] += table_width - used_width
     highlight_rows = highlight_rows or set()
+    highlight_row_colors = highlight_row_colors or {}
 
     c.setFillColor(colors.HexColor("#111827"))
     c.setFont("Helvetica-Bold", 12)
@@ -826,9 +909,32 @@ def _draw_table_section(
     c.line(left, y - 3, left + table_width, y - 3)
     y -= 18
 
+    def _draw_header_vertical_grid(y_top: float) -> None:
+        if not center_align:
+            return
+        c.setStrokeColor(colors.HexColor("#E5E7EB"))
+        c.setLineWidth(0.35)
+        vx = left
+        for i in range(len(columns) + 1):
+            c.line(vx, y_top, vx, y_top - header_row_height)
+            if i < len(columns):
+                vx += col_widths[i]
+
+    def _draw_row_vertical_grid(y_top: float) -> None:
+        if not center_align:
+            return
+        c.setStrokeColor(colors.HexColor("#E5E7EB"))
+        c.setLineWidth(0.35)
+        vx = left
+        for i in range(len(columns) + 1):
+            c.line(vx, y_top, vx, y_top - effective_row_height)
+            if i < len(columns):
+                vx += col_widths[i]
+
     def draw_header(y_pos: float) -> float:
         c.setFillColor(colors.HexColor("#E2E8F0"))
         c.rect(left, y_pos - header_row_height, table_width, header_row_height, fill=1, stroke=0)
+        _draw_header_vertical_grid(y_pos)
         c.setFillColor(colors.HexColor("#111827"))
         c.setFont("Helvetica-Bold", 8.5)
         x = left
@@ -836,13 +942,21 @@ def _draw_table_section(
             if two_line_feed_headers:
                 c.setFont("Helvetica-Bold", 7.5)
                 line1, line2 = _split_feed_column_header(col)
-                if i == 0:
+                cx = x + col_widths[i] / 2
+                if center_align:
+                    c.drawCentredString(cx, y_pos - 11, line1[:16])
+                    c.drawCentredString(cx, y_pos - 21, line2[:16])
+                elif i == 0:
                     c.drawString(x + 5, y_pos - 11, line1[:22])
                     c.drawString(x + 5, y_pos - 21, line2[:22])
                 else:
-                    cx = x + col_widths[i] / 2
                     c.drawCentredString(cx, y_pos - 11, line1[:16])
                     c.drawCentredString(cx, y_pos - 21, line2[:16])
+            elif center_align:
+                c.setFont("Helvetica-Bold", 8 if compact else 8.5)
+                cx = x + col_widths[i] / 2
+                hb = y_pos - (11 if compact else 12)
+                c.drawCentredString(cx, hb, str(col)[:26])
             else:
                 c.setFont("Helvetica-Bold", 8.5)
                 c.drawString(x + 5, y_pos - 12, str(col)[:26])
@@ -851,6 +965,12 @@ def _draw_table_section(
 
     y = draw_header(y)
     min_y_for_row = 40 + header_row_height
+    if compact and center_align:
+        text_baseline_offset = 11
+    elif effective_row_height <= 18:
+        text_baseline_offset = 12
+    else:
+        text_baseline_offset = 13
     for idx, row in enumerate(matrix):
         if y < min_y_for_row:
             c.showPage()
@@ -869,19 +989,29 @@ def _draw_table_section(
             y = draw_header(y)
 
         row_title = str(row[0] if row else "")
-        if row_title in highlight_rows:
+        custom_hex = highlight_row_colors.get(row_title) if highlight_row_colors else None
+        if custom_hex:
+            c.setFillColor(colors.HexColor(custom_hex))
+        elif row_title in highlight_rows:
             c.setFillColor(colors.HexColor("#DCFCE7"))
         elif idx % 2 == 0:
             c.setFillColor(colors.HexColor("#F9FAFB"))
         else:
             c.setFillColor(colors.white)
-        c.rect(left, y - row_height, table_width, row_height, fill=1, stroke=0)
+        c.rect(left, y - effective_row_height, table_width, effective_row_height, fill=1, stroke=0)
+        _draw_row_vertical_grid(y)
 
         x = left
         for i in range(len(columns)):
             text = str(row[i] if i < len(row) else "")
             c.setFillColor(colors.HexColor("#111827"))
-            if i == 0:
+            if center_align:
+                body_pt = 7.5 if compact else 8.2
+                c.setFont("Helvetica-Bold" if row_title == "Total" else "Helvetica", body_pt)
+                cx = x + col_widths[i] / 2
+                clip = 30 if i == 0 else 22
+                c.drawCentredString(cx, y - text_baseline_offset, text[:clip])
+            elif i == 0:
                 c.setFont("Helvetica-Bold" if row_title == "Total" else "Helvetica", 8.2)
                 c.drawString(x + 5, y - 12, text[:30])
             else:
@@ -892,11 +1022,10 @@ def _draw_table_section(
                     c.setFont("Helvetica", 8.2)
                     c.drawString(x + 5, y - 12, text[:18])
             x += col_widths[i]
-
         c.setStrokeColor(colors.HexColor("#E5E7EB"))
         c.setLineWidth(0.35)
-        c.line(left, y - row_height, left + table_width, y - row_height)
-        y -= row_height
+        c.line(left, y - effective_row_height, left + table_width, y - effective_row_height)
+        y -= effective_row_height
     return y - 16
 
 
@@ -1019,7 +1148,13 @@ def generate_report_pdfs(report_payload: dict) -> List[str]:
         columns1,
         matrix1,
         highlight_rows={"Closing Birds", "Closing Eggs", "Closing Feed"},
+        highlight_row_colors={
+            "Mortality": "#FEE2E2",
+            "Actual Production %": "#EDE9FE",
+        },
         report_date=report_date,
+        center_align=True,
+        compact=True,
     )
 
     # Component 4 starts on a fresh page.
@@ -1035,6 +1170,34 @@ def generate_report_pdfs(report_payload: dict) -> List[str]:
         matrix2,
         report_date=report_date,
         two_line_feed_headers=True,
+        center_align=True,
+    )
+
+    c.showPage()
+    y = _draw_report_page_header(c, width, height, report_date)
+    columns_sales, matrix_sales = _build_sales_detail_matrix(report_payload)
+    y = _draw_table_section(
+        c,
+        y,
+        width,
+        height,
+        "Sales",
+        columns_sales,
+        matrix_sales,
+        report_date=report_date,
+        center_align=True,
+    )
+    columns_fr, matrix_fr = _build_feed_receipts_detail_matrix(report_payload)
+    _draw_table_section(
+        c,
+        y,
+        width,
+        height,
+        "Feed plant receipts",
+        columns_fr,
+        matrix_fr,
+        report_date=report_date,
+        center_align=True,
     )
     c.save()
     return [str(out_path)]
