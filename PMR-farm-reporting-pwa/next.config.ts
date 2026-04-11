@@ -13,7 +13,8 @@ const withSerwist = withSerwistInit({
   swSrc: "app/sw.ts",
   swDest: "public/sw.js",
   register: true,
-  disable: false,
+  // Avoid stale precached bundles and dev overlay issues when testing on LAN / mobile.
+  disable: process.env.NODE_ENV === "development",
   scope: "/",
   cacheOnNavigation: true,
   additionalPrecacheEntries: [

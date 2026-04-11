@@ -7,6 +7,7 @@ from services.daily_reports_service import (
     submit_daily_report,
     update_daily_report,
 )
+from services.shed_closing_override_service import apply_shed_closing_override
 from utils.http import error, ok
 
 daily_reports_bp = Blueprint("daily_reports", __name__)
@@ -26,6 +27,52 @@ def _validate_submit_payload(payload):
         if value is not None and not isinstance(value, list):
             return f"{key} must be an array"
     return None
+
+
+def _validate_shed_closing_override_payload(payload):
+    if not isinstance(payload, dict):
+        return "body must be a JSON object"
+    if not isinstance(payload.get("reportDate"), str):
+        return "reportDate must be an ISO-8601 date string"
+    for key in ("shedId", "submitterId"):
+        if not isinstance(payload.get(key), (int, float)):
+            return f"{key} must be a number"
+    for key in (
+        "closingBirds",
+        "standardEggsClosing",
+        "smallEggsClosing",
+        "bigEggsClosing",
+        "feedClosing",
+    ):
+        if payload.get(key) is None:
+            return f"{key} is required"
+        if not isinstance(payload[key], (int, float)):
+            return f"{key} must be a number"
+    return None
+
+
+@daily_reports_bp.post("/api/shed-closing-override")
+def shed_closing_override():
+    payload = request.get_json(silent=True) or {}
+    validation_error = _validate_shed_closing_override_payload(payload)
+    if validation_error:
+        return error(validation_error, 400)
+
+    try:
+        result, reason = apply_shed_closing_override(payload)
+    except ValueError as exc:
+        return error(str(exc), 400)
+    except Exception as exc:
+        return error(f"Failed to apply shed closing override: {exc}", 500)
+
+    if reason == "not_found":
+        return error("No daily report for this date.", 404)
+    if reason == "no_shed_line":
+        return error(
+            "No shed data for this date; complete shed entry for this day first.",
+            400,
+        )
+    return ok(result, 200)
 
 
 @daily_reports_bp.post("/api/daily-reports/submit")

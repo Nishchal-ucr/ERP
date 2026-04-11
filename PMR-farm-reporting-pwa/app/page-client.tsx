@@ -253,8 +253,8 @@ export default function PageClient({ initialDate }: PageClientProps) {
                   </div>
                 </div>
               </div>
-              <Button variant="outline" size="icon" title="Flock options" asChild>
-                <Link href="/flock-management" aria-label="Flock options">
+              <Button variant="outline" size="icon" title="Other options" asChild>
+                <Link href="/other-options" aria-label="Other options">
                   <MoreHorizontal className="h-4 w-4" />
                 </Link>
               </Button>

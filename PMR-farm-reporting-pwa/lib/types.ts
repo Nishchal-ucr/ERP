@@ -99,12 +99,40 @@ export interface CullBirdSalesResponse {
   flockCleared: boolean;
 }
 
+/** POST /api/shed-closing-override */
+export interface ShedClosingOverrideDto {
+  reportDate: string;
+  shedId: number;
+  submitterId: number;
+  closingBirds: number;
+  standardEggsClosing: number;
+  smallEggsClosing: number;
+  bigEggsClosing: number;
+  feedClosing: number;
+}
+
+export interface ShedClosingOverrideResponse {
+  shedDailyReportId: number;
+  reportDate: number;
+  shedId: number;
+  closingBirds: number;
+  standardEggsClosing: number;
+  smallEggsClosing: number;
+  bigEggsClosing: number;
+  totalEggsClosing: number;
+  feedClosing: number;
+  nextDayAdjusted: boolean;
+  nextShedDailyReportId: number | null;
+}
+
 export interface Party {
   id: number;
   name: string;
   type: "SUPPLIER" | "CUSTOMER" | "BOTH";
   phone?: string;
   address?: string;
+  email?: string;
+  active?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -112,9 +140,49 @@ export interface Party {
 export interface FeedItem {
   id: number;
   name: string;
-  category: object;
+  category: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** GET /api/feed-formulations */
+export interface FeedFormulationRow {
+  id: number;
+  shedId: number;
+  shedName: string | null;
+  feedItemId: number;
+  feedItemName: string | null;
+  ratioPer1000Kg: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** GET /api/feed-item-daily-stock/latest */
+export interface FeedItemDailyStockRow {
+  feedItemId: number;
+  name: string;
+  category: string;
+  openingKg: number;
+  receiptsKg: number;
+  usedKg: number;
+  closingKg: number;
+  manualClosingKg: number | null;
+}
+
+export interface FeedItemDailyStockLatestDto {
+  reportDate: number | null;
+  items: FeedItemDailyStockRow[];
+}
+
+/** PATCH /api/feed-item-daily-stock */
+export interface PatchFeedItemDailyStockItemDto {
+  feedItemId: number;
+  closingKg: number;
+}
+
+export interface PatchFeedItemDailyStockDto {
+  reportDate: number;
+  items: PatchFeedItemDailyStockItemDto[];
 }
 
 export interface CreateSaleItemDto {

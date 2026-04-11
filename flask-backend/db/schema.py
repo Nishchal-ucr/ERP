@@ -255,6 +255,27 @@ def _ensure_production_standards_columns(conn) -> None:
     )
 
 
+def _ensure_parties_columns(conn) -> None:
+    required = {
+        "active": "INTEGER NOT NULL DEFAULT 1",
+        "email": "TEXT",
+    }
+    for column, col_type in required.items():
+        if not _column_exists(conn, "parties", column):
+            conn.execute(f"ALTER TABLE parties ADD COLUMN {column} {col_type}")
+
+
+def _ensure_feed_item_daily_stock_columns(conn) -> None:
+    required = {
+        "manualClosingKg": "REAL",
+    }
+    for column, col_type in required.items():
+        if not _column_exists(conn, "feed_item_daily_stock", column):
+            conn.execute(
+                f"ALTER TABLE feed_item_daily_stock ADD COLUMN {column} {col_type}"
+            )
+
+
 def initialize_schema() -> None:
     with get_connection() as conn:
         for stmt in SCHEMA_SQL:
@@ -263,4 +284,6 @@ def initialize_schema() -> None:
         _ensure_shed_daily_reports_columns(conn)
         _ensure_feed_formulation_columns(conn)
         _ensure_production_standards_columns(conn)
+        _ensure_parties_columns(conn)
+        _ensure_feed_item_daily_stock_columns(conn)
         conn.commit()

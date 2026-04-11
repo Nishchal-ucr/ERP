@@ -12,26 +12,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { useAuth } from "@/lib/auth-context";
-import {
-  createFeedItem,
-  createPartyForRole,
-  type FeedItemCategory,
-} from "@/lib/api";
 import { useAppData } from "@/lib/app-data-context";
 import { useDailyReportDraft } from "@/lib/daily-report-draft-context";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-
-const ADD_PARTY = "__new_party__";
-const ADD_FEED = "__new_feed__";
 
 interface AddFeedPlantEntryClientProps {
   date: string;
@@ -42,15 +27,17 @@ export function AddFeedPlantEntryClient({
 }: AddFeedPlantEntryClientProps) {
   const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
-  const { feedItems, parties, refreshData, isLoading: dataLoading } =
-    useAppData();
+  const { feedItems, parties, isLoading: dataLoading } = useAppData();
   const { draft, updateFeedReceipts, markNoFeedReceipts } =
     useDailyReportDraft();
 
   const sellerParties = useMemo(
     () =>
       [...parties]
-        .filter((p) => p.type === "SUPPLIER" || p.type === "BOTH")
+        .filter(
+          (p) =>
+            (p.type === "SUPPLIER" || p.type === "BOTH") && p.active !== false,
+        )
         .sort((a, b) => a.name.localeCompare(b.name)),
     [parties],
   );
@@ -64,15 +51,6 @@ export function AddFeedPlantEntryClient({
   const [feedItem, setFeedItem] = useState("");
   const [vehicle, setVehicle] = useState("");
   const [quantity, setQuantity] = useState("");
-
-  const [partySheetOpen, setPartySheetOpen] = useState(false);
-  const [feedSheetOpen, setFeedSheetOpen] = useState(false);
-  const [newPartyName, setNewPartyName] = useState("");
-  const [newFeedName, setNewFeedName] = useState("");
-  const [newFeedCategory, setNewFeedCategory] =
-    useState<FeedItemCategory>("INGREDIENT");
-  const [savingParty, setSavingParty] = useState(false);
-  const [savingFeed, setSavingFeed] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -117,82 +95,21 @@ export function AddFeedPlantEntryClient({
     router.push(`/feed-plant-entry?date=${date}`);
   };
 
-  const handlePartySelect = (value: string) => {
-    if (value === ADD_PARTY) {
-      setPartySheetOpen(true);
-      return;
-    }
-    setParty(value);
-  };
-
-  const handleFeedSelect = (value: string) => {
-    if (value === ADD_FEED) {
-      setFeedSheetOpen(true);
-      return;
-    }
-    setFeedItem(value);
-  };
-
-  const saveNewParty = async () => {
-    const name = newPartyName.trim();
-    if (!name) {
-      alert("Please enter a party name");
-      return;
-    }
-    setSavingParty(true);
-    try {
-      const created = await createPartyForRole(name, "seller");
-      await refreshData();
-      setParty(String(created.id));
-      setNewPartyName("");
-      setPartySheetOpen(false);
-    } catch (err: unknown) {
-      const msg =
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message?: string }).message)
-          : "Failed to add party";
-      alert(msg);
-    } finally {
-      setSavingParty(false);
-    }
-  };
-
-  const saveNewFeedItem = async () => {
-    const name = newFeedName.trim();
-    if (!name) {
-      alert("Please enter a feed item name");
-      return;
-    }
-    setSavingFeed(true);
-    try {
-      const qtyParsed = parseFloat(quantity);
-      const closingKg = Number.isFinite(qtyParsed) ? qtyParsed : 0;
-      const created = await createFeedItem(name, newFeedCategory, closingKg);
-      await refreshData();
-      setFeedItem(String(created.id));
-      setNewFeedName("");
-      setNewFeedCategory("INGREDIENT");
-      setFeedSheetOpen(false);
-    } catch (err: unknown) {
-      const msg =
-        err && typeof err === "object" && "message" in err
-          ? String((err as { message?: string }).message)
-          : "Failed to add feed item";
-      alert(msg);
-    } finally {
-      setSavingFeed(false);
-    }
-  };
-
   return (
     <div className="flex items-center justify-center">
       <div className="w-full max-w-sm">
         <AppHeader title="Add Feed Plant Entry" onBack={() => router.back()} />
         <Card className="m-4">
           <CardContent className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              To add sellers or feed items, use{" "}
+              <span className="font-medium">Other options</span> on the home
+              screen (Manage parties, Manage feed items).
+            </p>
+
             <Field>
               <FieldLabel htmlFor="party">Party</FieldLabel>
-              <Select value={party || undefined} onValueChange={handlePartySelect}>
+              <Select value={party || undefined} onValueChange={setParty}>
                 <SelectTrigger id="party" className="w-full">
                   <SelectValue placeholder="Select Party" />
                 </SelectTrigger>
@@ -205,9 +122,6 @@ export function AddFeedPlantEntryClient({
                       {sellerParty.name}
                     </SelectItem>
                   ))}
-                  <SelectItem value={ADD_PARTY} className="text-primary">
-                    + Add new party…
-                  </SelectItem>
                 </SelectContent>
               </Select>
             </Field>
@@ -216,7 +130,7 @@ export function AddFeedPlantEntryClient({
               <FieldLabel htmlFor="feed-item">Feed Item</FieldLabel>
               <Select
                 value={feedItem || undefined}
-                onValueChange={handleFeedSelect}
+                onValueChange={setFeedItem}
               >
                 <SelectTrigger id="feed-item" className="w-full">
                   <SelectValue placeholder="Select Item" />
@@ -227,9 +141,6 @@ export function AddFeedPlantEntryClient({
                       {item.name}
                     </SelectItem>
                   ))}
-                  <SelectItem value={ADD_FEED} className="text-primary">
-                    + Add new feed item…
-                  </SelectItem>
                 </SelectContent>
               </Select>
             </Field>
@@ -265,86 +176,6 @@ export function AddFeedPlantEntryClient({
           </CardContent>
         </Card>
       </div>
-
-      <Sheet open={partySheetOpen} onOpenChange={setPartySheetOpen}>
-        <SheetContent side="bottom" className="max-w-sm mx-auto w-full">
-          <SheetHeader>
-            <SheetTitle>New party</SheetTitle>
-          </SheetHeader>
-          <div className="px-4 pb-2">
-            <Field>
-              <FieldLabel htmlFor="new-party-name">Name</FieldLabel>
-              <InputGroup>
-                <InputGroupInput
-                  id="new-party-name"
-                  placeholder="Supplier name"
-                  value={newPartyName}
-                  onChange={(e) => setNewPartyName(e.target.value)}
-                  disabled={savingParty}
-                />
-              </InputGroup>
-            </Field>
-          </div>
-          <SheetFooter>
-            <Button
-              className="w-full"
-              onClick={saveNewParty}
-              disabled={savingParty}
-            >
-              {savingParty ? "Saving…" : "Save and select"}
-            </Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-
-      <Sheet open={feedSheetOpen} onOpenChange={setFeedSheetOpen}>
-        <SheetContent side="bottom" className="max-w-sm mx-auto w-full">
-          <SheetHeader>
-            <SheetTitle>New feed item</SheetTitle>
-          </SheetHeader>
-          <div className="px-4 pb-2 space-y-4">
-            <Field>
-              <FieldLabel htmlFor="new-feed-name">Name</FieldLabel>
-              <InputGroup>
-                <InputGroupInput
-                  id="new-feed-name"
-                  placeholder="Item name"
-                  value={newFeedName}
-                  onChange={(e) => setNewFeedName(e.target.value)}
-                  disabled={savingFeed}
-                />
-              </InputGroup>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="new-feed-category">Category</FieldLabel>
-              <Select
-                value={newFeedCategory}
-                onValueChange={(v) =>
-                  setNewFeedCategory(v as FeedItemCategory)
-                }
-                disabled={savingFeed}
-              >
-                <SelectTrigger id="new-feed-category" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="INGREDIENT">Ingredient</SelectItem>
-                  <SelectItem value="MEDICINE">Medicine</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-          </div>
-          <SheetFooter>
-            <Button
-              className="w-full"
-              onClick={saveNewFeedItem}
-              disabled={savingFeed}
-            >
-              {savingFeed ? "Saving…" : "Save and select"}
-            </Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }

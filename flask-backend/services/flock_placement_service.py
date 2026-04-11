@@ -48,6 +48,32 @@ def _normalize_birth_date(iso: str) -> str:
     return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
 
 
+def _ensure_flock_number_unique(conn, exclude_shed_id: int, flock_number: str) -> None:
+    """Raise ValueError if another active shed already uses this flock ID (case-insensitive)."""
+    fn = (flock_number or "").strip()
+    if not fn:
+        return
+    dup = conn.execute(
+        """
+        SELECT 1 FROM (
+          SELECT id AS sid FROM sheds
+          WHERE id != %s AND active = 1
+            AND TRIM(COALESCE(flockNumber, '')) != ''
+            AND LOWER(TRIM(flockNumber)) = LOWER(%s)
+          UNION
+          SELECT m.shedId AS sid FROM shed_flock_metadata m
+          INNER JOIN sheds s ON s.id = m.shedId AND s.active = 1
+          WHERE m.shedId != %s
+            AND LOWER(TRIM(m.flockNumber)) = LOWER(%s)
+        ) d
+        LIMIT 1
+        """,
+        (exclude_shed_id, fn, exclude_shed_id, fn),
+    ).fetchone()
+    if dup:
+        raise ValueError("This flock ID is already used by another shed.")
+
+
 def place_new_batch(payload: dict[str, Any]) -> dict[str, Any]:
     """
     Validate shed is empty (latest closing birds null or 0), then update sheds,
@@ -95,6 +121,8 @@ def place_new_batch(payload: dict[str, Any]) -> dict[str, Any]:
         ).fetchone()
         if not shed or not shed.get("active"):
             raise ShedNotFoundError()
+
+        _ensure_flock_number_unique(conn, shed_id, flock_number)
 
         conn.execute(
             """

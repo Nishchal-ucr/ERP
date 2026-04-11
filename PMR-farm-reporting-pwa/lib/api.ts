@@ -4,6 +4,9 @@ import type {
   Shed,
   Party,
   FeedItem,
+  FeedFormulationRow,
+  FeedItemDailyStockLatestDto,
+  PatchFeedItemDailyStockDto,
   SubmitDailyReportDto,
   DailyReport,
   DailyReportResponseDto,
@@ -14,6 +17,8 @@ import type {
   ShedTransferResponse,
   CullBirdSalesDto,
   CullBirdSalesResponse,
+  ShedClosingOverrideDto,
+  ShedClosingOverrideResponse,
 } from "./types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -84,6 +89,17 @@ export async function getFlockSummary(): Promise<FlockSummaryRow[]> {
   return processResponse(response);
 }
 
+export async function patchShedFlockId(
+  shedId: number,
+  flockNumber: string,
+): Promise<Shed> {
+  const response = await fetch(
+    buildUrl(`/api/sheds/${shedId}/flock-id`),
+    createFetchOptions("PATCH", { flockNumber }),
+  );
+  return processResponse(response);
+}
+
 export async function postFlockPlacement(
   dto: FlockPlacementDto,
 ): Promise<FlockPlacementResponse> {
@@ -133,23 +149,75 @@ export async function postCullBirdSales(
   return processResponse(response);
 }
 
+export async function postShedClosingOverride(
+  dto: ShedClosingOverrideDto,
+): Promise<ShedClosingOverrideResponse> {
+  const response = await fetch(
+    buildUrl("/api/shed-closing-override"),
+    createFetchOptions("POST", {
+      reportDate: dto.reportDate,
+      shedId: dto.shedId,
+      submitterId: dto.submitterId,
+      closingBirds: dto.closingBirds,
+      standardEggsClosing: dto.standardEggsClosing,
+      smallEggsClosing: dto.smallEggsClosing,
+      bigEggsClosing: dto.bigEggsClosing,
+      feedClosing: dto.feedClosing,
+    }),
+  );
+  return processResponse(response);
+}
+
 export async function getAllParties(): Promise<Party[]> {
   const response = await fetch(buildUrl("/api/parties"));
   return processResponse(response);
 }
 
+export type PartiesListFilters = {
+  activeFilter: "all" | "active" | "inactive";
+  kindFilter: "all" | "buyer" | "seller" | "both";
+};
+
+export async function getParties(
+  filters: PartiesListFilters,
+): Promise<Party[]> {
+  const params = new URLSearchParams();
+  if (filters.activeFilter === "active") params.set("active", "true");
+  if (filters.activeFilter === "inactive") params.set("active", "false");
+  if (filters.kindFilter !== "all") params.set("kind", filters.kindFilter);
+  const q = params.toString();
+  const path = q ? `/api/parties?${q}` : "/api/parties";
+  const response = await fetch(buildUrl(path));
+  return processResponse(response);
+}
+
 export async function getBuyerParties(): Promise<Party[]> {
-  const response = await fetch(buildUrl("/api/parties?role=buyer"));
+  const response = await fetch(
+    buildUrl("/api/parties?role=buyer&active=true"),
+  );
   return processResponse(response);
 }
 
 export async function getSellerParties(): Promise<Party[]> {
-  const response = await fetch(buildUrl("/api/parties?role=seller"));
+  const response = await fetch(
+    buildUrl("/api/parties?role=seller&active=true"),
+  );
   return processResponse(response);
 }
 
 export async function getPartyById(id: number): Promise<Party> {
   const response = await fetch(buildUrl(`/api/parties/${id}`));
+  return processResponse(response);
+}
+
+export async function patchParty(
+  id: number,
+  body: { active: boolean },
+): Promise<Party> {
+  const response = await fetch(
+    buildUrl(`/api/parties/${id}`),
+    createFetchOptions("PATCH", body),
+  );
   return processResponse(response);
 }
 
@@ -163,16 +231,17 @@ export async function getFeedItemById(id: number): Promise<FeedItem> {
   return processResponse(response);
 }
 
-export type PartyRole = "seller" | "buyer";
+export type PartyRole = "seller" | "buyer" | "both";
 
 export async function createPartyForRole(
   name: string,
   role: PartyRole,
-  opts?: { phone?: string; address?: string },
+  opts?: { phone?: string; address?: string; email?: string },
 ): Promise<Party> {
   const body: Record<string, string> = { name, role };
   if (opts?.phone !== undefined) body.phone = opts.phone;
   if (opts?.address !== undefined) body.address = opts.address;
+  if (opts?.email !== undefined) body.email = opts.email;
   const response = await fetch(
     buildUrl("/api/parties"),
     createFetchOptions("POST", body),
@@ -190,6 +259,71 @@ export async function createFeedItem(
   const response = await fetch(
     buildUrl("/api/feed-items"),
     createFetchOptions("POST", { name, category, closingKg }),
+  );
+  return processResponse(response);
+}
+
+export async function getFeedFormulations(): Promise<FeedFormulationRow[]> {
+  const response = await fetch(buildUrl("/api/feed-formulations"));
+  return processResponse(response);
+}
+
+export async function patchFeedFormulation(
+  id: number,
+  body: { ratioPer1000Kg: number },
+): Promise<FeedFormulationRow> {
+  const response = await fetch(
+    buildUrl(`/api/feed-formulations/${id}`),
+    createFetchOptions("PATCH", body),
+  );
+  return processResponse(response);
+}
+
+export async function createFeedFormulation(body: {
+  shedId: number;
+  feedItemId: number;
+  ratioPer1000Kg: number;
+}): Promise<FeedFormulationRow> {
+  const response = await fetch(
+    buildUrl("/api/feed-formulations"),
+    createFetchOptions("POST", body),
+  );
+  return processResponse(response);
+}
+
+export async function deleteFeedFormulation(
+  id: number,
+): Promise<{ deleted: boolean; id: number }> {
+  const response = await fetch(
+    buildUrl(`/api/feed-formulations/${id}`),
+    createFetchOptions("DELETE"),
+  );
+  return processResponse(response);
+}
+
+export async function deleteFeedItem(
+  id: number,
+): Promise<{ deleted: boolean; id: number }> {
+  const response = await fetch(
+    buildUrl(`/api/feed-items/${id}`),
+    createFetchOptions("DELETE"),
+  );
+  return processResponse(response);
+}
+
+export async function getFeedItemDailyStockLatest(): Promise<FeedItemDailyStockLatestDto> {
+  const response = await fetch(
+    buildUrl("/api/feed-item-daily-stock/latest"),
+  );
+  return processResponse(response);
+}
+
+export async function patchFeedItemDailyStock(
+  dto: PatchFeedItemDailyStockDto,
+): Promise<FeedItemDailyStockLatestDto> {
+  const response = await fetch(
+    buildUrl("/api/feed-item-daily-stock"),
+    createFetchOptions("PATCH", dto),
   );
   return processResponse(response);
 }

@@ -6,26 +6,46 @@ import { useAuth } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
-const FLOCK_OPTIONS = [
+const OTHER_OPTIONS = [
   {
     title: "View flock data",
-    href: "/flock-management/view-flock-data",
+    href: "/other-options/view-flock-data",
   },
   {
     title: "New batch entry",
-    href: "/flock-management/new-batch",
+    href: "/other-options/new-batch",
   },
   {
     title: "Shed transfer",
-    href: "/flock-management/shed-transfer",
+    href: "/other-options/shed-transfer",
   },
   {
     title: "Cull bird sales",
-    href: "/flock-management/cull-bird-sales",
+    href: "/other-options/cull-bird-sales",
+  },
+  {
+    title: "Manage parties",
+    href: "/other-options/manage-parties",
+  },
+  {
+    title: "Overwrite feed closing",
+    href: "/other-options/overwrite-feed-closing",
+  },
+  {
+    title: "Overwrite shed closing",
+    href: "/other-options/overwrite-shed-closing",
+  },
+  {
+    title: "Manage feed items",
+    href: "/other-options/manage-feed-items",
+  },
+  {
+    title: "Manage feed formulations",
+    href: "/other-options/manage-feed-formulations",
   },
 ] as const;
 
-export function FlockManagementClient() {
+export function OtherOptionsClient() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
 
@@ -51,12 +71,12 @@ export function FlockManagementClient() {
     <div className="flex min-h-screen justify-center">
       <div className="w-full max-w-sm">
         <AppHeader
-          title="Flock management"
+          title="Other options"
           onBack={() => router.push("/")}
         />
 
         <div className="flex flex-col gap-4 px-4 py-4">
-          {FLOCK_OPTIONS.map((opt) => (
+          {OTHER_OPTIONS.map((opt) => (
             <ReportItem
               key={opt.href}
               title={opt.title}

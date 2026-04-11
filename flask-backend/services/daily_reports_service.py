@@ -472,12 +472,22 @@ def _recalculate_feed_item_daily_stock(conn, daily_report_id: int, report_date: 
     for item_id in feed_item_ids:
         opening = float(opening_by_item.get(item_id, 0))
         receipts = float(receipts_by_item.get(item_id, 0))
-        used = float(used_by_item.get(item_id, 0))
-        closing = opening + receipts - used
+        used_formula = float(used_by_item.get(item_id, 0))
         existing = conn.execute(
-            "SELECT id FROM feed_item_daily_stock WHERE reportDate = %s AND feedItemId = %s",
+            """
+            SELECT id, manualClosingKg
+            FROM feed_item_daily_stock
+            WHERE reportDate = %s AND feedItemId = %s
+            """,
             (report_date, item_id),
         ).fetchone()
+        manual_raw = existing["manualClosingKg"] if existing else None
+        if manual_raw is not None:
+            closing = float(manual_raw)
+            used = opening + receipts - closing
+        else:
+            used = used_formula
+            closing = opening + receipts - used
         if existing:
             conn.execute(
                 """
