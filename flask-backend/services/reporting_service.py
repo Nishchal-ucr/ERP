@@ -528,13 +528,14 @@ def _build_report2_matrix(report_payload: dict) -> Tuple[List[str], List[List[st
             _format_number(stock["receipts"], 2),
         ]
         row.extend(_format_number(value, 2) for value in per_shed_usage)
-        row.append(_format_number(stock["used"], 2))
+        total_used_row = sum(per_shed_usage)
+        row.append(_format_number(total_used_row, 2))
         row.append(_format_number(stock["closing"], 2))
         matrix.append(row)
 
         totals["opening"] += stock["opening"]
         totals["receipts"] += stock["receipts"]
-        totals["used"] += stock["used"]
+        totals["used"] += total_used_row
         totals["closing"] += stock["closing"]
 
     total_row = [
