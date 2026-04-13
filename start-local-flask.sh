@@ -46,18 +46,18 @@ echo "[FLASK] Installing/updating Python dependencies from requirements.txt..."
 echo "[WEB] Ensuring npm dependencies (safe to re-run if already up to date)..."
 (cd "${PWA_DIR}" && npm install)
 
-echo "[FLASK] Starting Flask API on 8001..."
+echo "[FLASK] Starting Flask API on 8010..."
 (cd "${FLASK_DIR}" && "${VENV_DIR}/bin/python" app.py) &
 FLASK_PID=$!
 
-echo "[WEB] Starting Next.js app on 3000..."
-(cd "${PWA_DIR}" && npm run dev) &
+echo "[WEB] Starting Next.js app on 3010..."
+(cd "${PWA_DIR}" && PORT=3010 npm run dev) &
 PWA_PID=$!
 
 echo
 echo "Apps starting..."
-echo "- Flask API: http://localhost:8001"
-echo "- Frontend:  http://localhost:3000"
+echo "- Flask API: http://localhost:8010"
+echo "- Frontend:  http://localhost:3010"
 echo "Press Ctrl+C to stop both."
 echo
 
