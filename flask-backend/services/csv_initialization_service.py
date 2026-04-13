@@ -590,11 +590,15 @@ def run_csv_initialization(
     replace_parties: bool = False,
     clear_from_baseline: bool = False,
     prune_orphan_feed_items: bool = False,
+    baseline_date_override: int | None = None,
     dry_run: bool = False,
 ) -> dict:
     with get_connection() as conn:
         write_mode = True
-        baseline_date = _today_int() if clear_from_baseline else _choose_baseline_date(conn)
+        if baseline_date_override is not None:
+            baseline_date = int(baseline_date_override)
+        else:
+            baseline_date = _today_int() if clear_from_baseline else _choose_baseline_date(conn)
         if clear_from_baseline:
             _clear_reports_from_baseline(conn, baseline_date)
         if replace_parties:

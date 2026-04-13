@@ -38,6 +38,7 @@ export default function PageClient({ initialDate }: PageClientProps) {
   const searchParams = useSearchParams();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitWarning, setSubmitWarning] = useState<string | null>(null);
+  const [latestReportDate, setLatestReportDate] = useState<string | null>(null);
   const [dateBounds, setDateBounds] = useState<{ min: string } | null>(() =>
     isReportDateBoundsRelaxed() ? { min: "1970-01-01" } : null,
   );
@@ -61,21 +62,32 @@ export default function PageClient({ initialDate }: PageClientProps) {
   const { user, logout, isLoading } = useAuth();
   const { draft, loadDraft, clearDraft, setSyncStatus } = useDailyReportDraft();
   const { sheds } = useAppData();
+  const todayDate = todayIsoLocal();
+  const hasSubmittedReports = latestReportDate != null;
+  const effectiveLatestDate = latestReportDate ?? todayDate;
+  const isBeforeLatest = hasSubmittedReports && date < effectiveLatestDate;
+  const isAfterToday = date > todayDate;
+  const isEditableDate = hasSubmittedReports
+    ? date >= effectiveLatestDate && date <= todayDate
+    : date === todayDate;
 
   const refreshDateBounds = useCallback(async () => {
-    if (isReportDateBoundsRelaxed()) return;
     try {
       const reports = await getAllDailyReports();
       if (reports.length === 0) {
-        setDateBounds({ min: todayIsoLocal() });
+        setLatestReportDate(null);
+        setDateBounds({ min: todayDate });
       } else {
         const maxYyyymmdd = Math.max(...reports.map((r) => r.reportDate));
-        setDateBounds({ min: yyyymmddToIso(maxYyyymmdd) });
+        const latestIso = yyyymmddToIso(maxYyyymmdd);
+        setLatestReportDate(latestIso);
+        setDateBounds({ min: latestIso });
       }
     } catch {
-      setDateBounds({ min: todayIsoLocal() });
+      setLatestReportDate(null);
+      setDateBounds({ min: todayDate });
     }
-  }, []);
+  }, [todayDate]);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -85,7 +97,6 @@ export default function PageClient({ initialDate }: PageClientProps) {
 
   useEffect(() => {
     if (!user || isLoading) return;
-    if (isReportDateBoundsRelaxed()) return;
     void refreshDateBounds();
   }, [user, isLoading, refreshDateBounds]);
 
@@ -142,12 +153,13 @@ export default function PageClient({ initialDate }: PageClientProps) {
     sheds &&
     draft.shedDailyReports.length == sheds.length
   );
-  const canOpenFeed = hasSalesData;
-  const canOpenShed = hasSalesData && hasFeedData;
-  const canSubmit = hasSalesData && hasFeedData && hasShedData;
+  const canOpenFeed = isEditableDate && hasSalesData;
+  const canOpenShed = isEditableDate && hasSalesData && hasFeedData;
+  const canSubmit = isEditableDate && hasSalesData && hasFeedData && hasShedData;
   const syncStatus = draft?.syncStatus ?? "pending_create";
   const submitButtonText =
     syncStatus === "pending_update" ? "Update Report" : "Submit Report";
+  const needsShedReentry = !!draft?.shedReentryRequired;
 
   const handleLogout = () => {
     logout();
@@ -318,7 +330,18 @@ export default function PageClient({ initialDate }: PageClientProps) {
               }`}
               href={`/sales-entry?date=${date}`}
               completed={hasSalesData}
-              onClick={() => {}}
+              onClick={(e) => {
+                if (!isEditableDate) {
+                  e.preventDefault();
+                  alert(
+                    isAfterToday
+                      ? "Future dates are read-only."
+                      : hasSubmittedReports
+                      ? "Dates before the latest submitted report are read-only."
+                      : "Only today's date is editable until the first report is submitted.",
+                  );
+                }
+              }}
               className="mt-8"
             />
             <ReportItem
@@ -332,6 +355,17 @@ export default function PageClient({ initialDate }: PageClientProps) {
               href={`/feed-plant-entry?date=${date}`}
               completed={hasFeedData}
               onClick={(e) => {
+                if (!isEditableDate) {
+                  e.preventDefault();
+                  alert(
+                    isAfterToday
+                      ? "Future dates are read-only."
+                      : hasSubmittedReports
+                      ? "Dates before the latest submitted report are read-only."
+                      : "Only today's date is editable until the first report is submitted.",
+                  );
+                  return;
+                }
                 if (!canOpenFeed) {
                   e.preventDefault();
                   alert("Complete Sales Entry first.");
@@ -341,13 +375,26 @@ export default function PageClient({ initialDate }: PageClientProps) {
             />
             <ReportItem
               title={`Shed Data Entry${
-                (draft?.shedDailyReports?.length || 0) > 0
+                needsShedReentry
+                  ? " (Re-entry required)"
+                  : (draft?.shedDailyReports?.length || 0) > 0
                   ? ` (${draft?.shedDailyReports?.length}/${sheds?.length})`
                   : ""
               }`}
               href={`/shed-data-entry?date=${date}`}
               completed={hasShedData}
               onClick={(e) => {
+                if (!isEditableDate) {
+                  e.preventDefault();
+                  alert(
+                    isAfterToday
+                      ? "Future dates are read-only."
+                      : hasSubmittedReports
+                      ? "Dates before the latest submitted report are read-only."
+                      : "Only today's date is editable until the first report is submitted.",
+                  );
+                  return;
+                }
                 if (!canOpenShed) {
                   e.preventDefault();
                   alert("Complete Sales Entry and Feed Plant Entry first.");
@@ -358,6 +405,15 @@ export default function PageClient({ initialDate }: PageClientProps) {
 
             {syncStatus === "synced" ? (
               <>
+                {!isEditableDate ? (
+                  <div className="mt-4 rounded-lg border border-slate-300 bg-slate-50 p-3 text-center text-sm text-slate-700">
+                    {isAfterToday
+                      ? "This report date is in the future and read-only."
+                      : hasSubmittedReports
+                      ? `This report date is read-only. You can edit from ${effectiveLatestDate} through ${todayDate}.`
+                      : "No report has been submitted yet. Only today's date is editable."}
+                  </div>
+                ) : null}
                 <div className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-center text-sm font-medium text-emerald-600">
                   Report has been submitted successfully.
                 </div>
@@ -369,6 +425,27 @@ export default function PageClient({ initialDate }: PageClientProps) {
               </>
             ) : (
               <>
+                {!isEditableDate ? (
+                  <div className="mt-4 rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-700">
+                    {isAfterToday
+                      ? "This report date is in the future and read-only."
+                      : hasSubmittedReports
+                      ? `This report date is read-only. Switch to any date from ${effectiveLatestDate} to ${todayDate}.`
+                      : "No report has been submitted yet. Only today's date is editable."}
+                  </div>
+                ) : null}
+                {syncStatus === "pending_update" ? (
+                  <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                    Submitted report has changed. Review entries and click Update Report
+                    to sync server data.
+                  </div>
+                ) : null}
+                {needsShedReentry ? (
+                  <div className="mt-3 rounded-lg border border-orange-300 bg-orange-50 p-3 text-sm text-orange-800">
+                    Sales or feed changes cleared previous shed values. Re-enter Shed Data
+                    before updating.
+                  </div>
+                ) : null}
                 <Button
                   className="w-full mt-4"
                   size="lg"

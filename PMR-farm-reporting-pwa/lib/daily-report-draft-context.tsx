@@ -27,6 +27,8 @@ export interface DailyReportDraft {
   sales: CreateSaleDto[];
   feedReceipts: CreateFeedReceiptDto[];
   shedDailyReports: CreateShedDailyReportDto[];
+  // True when submitted report was edited upstream and shed data was intentionally cleared.
+  shedReentryRequired: boolean;
   noSalesConfirmed: boolean;
   noFeedReceiptsConfirmed: boolean;
   syncStatus: SyncStatus;
@@ -81,6 +83,9 @@ const DailyReportDraftContext = createContext<
 >(undefined);
 
 const STORAGE_KEY = "dailyReportDrafts";
+// Strategy decision: keep strict reset behavior for data integrity.
+// When sales/feed changes after shed entry, shed data must be re-entered.
+const STRICT_SALES_FEED_INVALIDATES_SHED = true;
 
 // Helper to get all drafts from storage
 function getAllDrafts(): Record<string, DailyReportDraft> {
@@ -130,6 +135,7 @@ function createEmptyDraft(date: string): DailyReportDraft {
     sales: [],
     feedReceipts: [],
     shedDailyReports: [],
+    shedReentryRequired: false,
     noSalesConfirmed: false,
     noFeedReceiptsConfirmed: false,
     syncStatus: "pending_create",
@@ -201,6 +207,7 @@ function convertDailyReportResponseToDraft(
     sales,
     feedReceipts,
     shedDailyReports,
+    shedReentryRequired: false,
     noSalesConfirmed: false,
     noFeedReceiptsConfirmed: false,
     syncStatus: "synced",
@@ -224,12 +231,14 @@ export function DailyReportDraftProvider({
       if (!prev) return prev;
       const newStatus =
         prev.syncStatus === "synced" ? "pending_update" : prev.syncStatus;
+      const shouldClearShed =
+        STRICT_SALES_FEED_INVALIDATES_SHED && prev.shedDailyReports.length > 0;
       const updated = {
         ...prev,
         sales,
         // If upstream sales/feed changes after shed entry, shed must be re-entered.
-        shedDailyReports:
-          prev.shedDailyReports.length > 0 ? [] : prev.shedDailyReports,
+        shedDailyReports: shouldClearShed ? [] : prev.shedDailyReports,
+        shedReentryRequired: shouldClearShed,
         noSalesConfirmed: sales.length > 0 ? false : prev.noSalesConfirmed,
         syncStatus: newStatus,
       };
@@ -243,12 +252,14 @@ export function DailyReportDraftProvider({
       if (!prev) return prev;
       const newStatus =
         prev.syncStatus === "synced" ? "pending_update" : prev.syncStatus;
+      const shouldClearShed =
+        STRICT_SALES_FEED_INVALIDATES_SHED && prev.shedDailyReports.length > 0;
       const updated = {
         ...prev,
         feedReceipts,
         // If upstream sales/feed changes after shed entry, shed must be re-entered.
-        shedDailyReports:
-          prev.shedDailyReports.length > 0 ? [] : prev.shedDailyReports,
+        shedDailyReports: shouldClearShed ? [] : prev.shedDailyReports,
+        shedReentryRequired: shouldClearShed,
         noFeedReceiptsConfirmed:
           feedReceipts.length > 0 ? false : prev.noFeedReceiptsConfirmed,
         syncStatus: newStatus,
@@ -263,11 +274,13 @@ export function DailyReportDraftProvider({
       if (!prev) return prev;
       const newStatus =
         prev.syncStatus === "synced" ? "pending_update" : prev.syncStatus;
+      const shouldClearShed =
+        STRICT_SALES_FEED_INVALIDATES_SHED && prev.shedDailyReports.length > 0;
       const updated = {
         ...prev,
         sales: confirmed ? [] : prev.sales,
-        shedDailyReports:
-          prev.shedDailyReports.length > 0 ? [] : prev.shedDailyReports,
+        shedDailyReports: shouldClearShed ? [] : prev.shedDailyReports,
+        shedReentryRequired: shouldClearShed,
         noSalesConfirmed: confirmed,
         syncStatus: newStatus,
       };
@@ -281,11 +294,13 @@ export function DailyReportDraftProvider({
       if (!prev) return prev;
       const newStatus =
         prev.syncStatus === "synced" ? "pending_update" : prev.syncStatus;
+      const shouldClearShed =
+        STRICT_SALES_FEED_INVALIDATES_SHED && prev.shedDailyReports.length > 0;
       const updated = {
         ...prev,
         feedReceipts: confirmed ? [] : prev.feedReceipts,
-        shedDailyReports:
-          prev.shedDailyReports.length > 0 ? [] : prev.shedDailyReports,
+        shedDailyReports: shouldClearShed ? [] : prev.shedDailyReports,
+        shedReentryRequired: shouldClearShed,
         noFeedReceiptsConfirmed: confirmed,
         syncStatus: newStatus,
       };
@@ -301,7 +316,12 @@ export function DailyReportDraftProvider({
       if (!prev) return prev;
       const newStatus =
         prev.syncStatus === "synced" ? "pending_update" : prev.syncStatus;
-      const updated = { ...prev, shedDailyReports, syncStatus: newStatus };
+      const updated = {
+        ...prev,
+        shedDailyReports,
+        shedReentryRequired: false,
+        syncStatus: newStatus,
+      };
       saveDraftToStorage(currentDate, updated);
       return updated;
     });
@@ -310,28 +330,48 @@ export function DailyReportDraftProvider({
   const loadDraft = useCallback(async (date: string) => {
     setCurrentDate(date);
     const storedDraft = getDraftFromStorage(date);
+    const normalizedStoredDraft = storedDraft
+      ? {
+          ...storedDraft,
+          reportDate: date,
+          shedReentryRequired: storedDraft.shedReentryRequired ?? false,
+        }
+      : null;
 
     try {
       const response = await getDailyReportByDate(date);
       const convertedDraft = convertDailyReportResponseToDraft(date, response);
-      setDraft(convertedDraft);
-      saveDraftToStorage(date, convertedDraft);
+      // Preserve local unsynced edits (especially pending_update) instead of
+      // clobbering them with last submitted server payload on navigation/reload.
+      if (
+        normalizedStoredDraft &&
+        normalizedStoredDraft.syncStatus !== "synced"
+      ) {
+        setDraft(normalizedStoredDraft);
+        saveDraftToStorage(date, normalizedStoredDraft);
+      } else {
+        setDraft(convertedDraft);
+        saveDraftToStorage(date, convertedDraft);
+      }
     } catch (error) {
       const status = (error as { status?: number }).status;
       if (status === 404) {
         // No report on server for this date — do not trust local sync flags from before a DB reset.
         console.info("No daily report found for date:", date);
-        if (storedDraft) {
+        if (normalizedStoredDraft) {
           const serverMissing =
-            storedDraft.syncStatus === "synced" ||
-            storedDraft.syncStatus === "pending_update";
+            normalizedStoredDraft.syncStatus === "synced" ||
+            normalizedStoredDraft.syncStatus === "pending_update";
           const merged: DailyReportDraft = serverMissing
             ? {
-                ...storedDraft,
+                ...normalizedStoredDraft,
                 reportDate: date,
                 syncStatus: "pending_create",
               }
-            : { ...storedDraft, reportDate: date };
+            : {
+                ...normalizedStoredDraft,
+                reportDate: date,
+              };
           setDraft(merged);
           saveDraftToStorage(date, merged);
         } else {
@@ -339,8 +379,8 @@ export function DailyReportDraftProvider({
         }
       } else {
         console.error("Failed to load daily report:", error);
-        if (storedDraft) {
-          setDraft({ ...storedDraft, reportDate: date });
+        if (normalizedStoredDraft) {
+          setDraft(normalizedStoredDraft);
         } else {
           setDraft(createEmptyDraft(date));
         }
@@ -361,6 +401,7 @@ export function DailyReportDraftProvider({
       sales: [],
       feedReceipts: [],
       shedDailyReports: [],
+      shedReentryRequired: false,
       noSalesConfirmed: false,
       noFeedReceiptsConfirmed: false,
       syncStatus: "pending_create",

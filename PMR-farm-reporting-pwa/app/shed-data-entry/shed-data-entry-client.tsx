@@ -4,14 +4,16 @@ import { AppHeader } from "@/components/custom/app-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAppData } from "@/lib/app-data-context";
+import { getAllDailyReports } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { todayIsoLocal, yyyymmddToIso } from "@/lib/date-utils";
 import {
   DailyReportDraft,
   useDailyReportDraft,
 } from "@/lib/daily-report-draft-context";
 import type { CreateShedDailyReportDto } from "@/lib/types";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 type ShedDataRow = {
   shedId: number;
@@ -40,11 +42,30 @@ export function ShedDataEntryClient({ date }: ShedDataEntryClientProps) {
   const { user, isLoading: authLoading } = useAuth();
   const { sheds, isLoading: dataLoading } = useAppData();
   const { draft, loadDraft, updateShedDailyReports } = useDailyReportDraft();
+  const [isEditableDate, setIsEditableDate] = useState(false);
+  const todayDate = todayIsoLocal();
 
   // Initialize data when draft is loaded
   useEffect(() => {
     loadDraft(date);
   }, [date]);
+
+  useEffect(() => {
+    const loadEditability = async () => {
+      try {
+        const reports = await getAllDailyReports();
+        if (reports.length === 0) {
+          setIsEditableDate(date === todayDate);
+          return;
+        }
+        const latest = yyyymmddToIso(Math.max(...reports.map((r) => r.reportDate)));
+        setIsEditableDate(date >= latest && date <= todayDate);
+      } catch {
+        setIsEditableDate(date === todayDate);
+      }
+    };
+    void loadEditability();
+  }, [date, todayDate]);
 
   // Compute form data from sheds and draft
   const data =
@@ -84,6 +105,10 @@ export function ShedDataEntryClient({ date }: ShedDataEntryClientProps) {
   };
 
   const handleSubmit = () => {
+    if (!isEditableDate) {
+      alert("This date is read-only.");
+      return;
+    }
     const dtoData: CreateShedDailyReportDto[] = data.map((d) => ({
       shedId: d.shedId,
       openingBirds: d.openingBirds,
@@ -142,6 +167,11 @@ export function ShedDataEntryClient({ date }: ShedDataEntryClientProps) {
         <p className="px-4 pt-4">
           {`${draft?.shedDailyReports?.length} of ${sheds.length} sheds completed`}
         </p>
+        {!isEditableDate ? (
+          <p className="px-4 pt-2 text-xs text-slate-600">
+            This date is read-only.
+          </p>
+        ) : null}
 
         {/* Main Content */}
         <div className="p-4">
@@ -156,6 +186,7 @@ export function ShedDataEntryClient({ date }: ShedDataEntryClientProps) {
                       <Button
                         size="sm"
                         variant={"outline"}
+                        disabled={!isEditableDate}
                         onClick={() =>
                           router.push(
                             `/shed-data-entry/add-entry?date=${date}&shedId=${row.shedId}`,
@@ -287,7 +318,7 @@ export function ShedDataEntryClient({ date }: ShedDataEntryClientProps) {
             className="w-full mt-4"
             size={"lg"}
             onClick={handleSubmit}
-            disabled={sheds.length != draft?.shedDailyReports?.length}
+            disabled={!isEditableDate || sheds.length != draft?.shedDailyReports?.length}
           >
             Done
           </Button>

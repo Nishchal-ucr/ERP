@@ -12,12 +12,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAppData } from "@/lib/app-data-context";
+import { getAllDailyReports } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { todayIsoLocal, yyyymmddToIso } from "@/lib/date-utils";
 import { useDailyReportDraft } from "@/lib/daily-report-draft-context";
 import type { CreateSaleDto } from "@/lib/types";
 import { PlusIcon, TrashIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 interface SalesEntryClientProps {
   date: string;
@@ -28,6 +30,25 @@ export function SalesEntryClient({ date }: SalesEntryClientProps) {
   const { user, isLoading } = useAuth();
   const { draft, loadDraft, updateSales, markNoSales } = useDailyReportDraft();
   const { sheds, parties } = useAppData();
+  const [isEditableDate, setIsEditableDate] = useState(false);
+  const todayDate = todayIsoLocal();
+
+  useEffect(() => {
+    const loadEditability = async () => {
+      try {
+        const reports = await getAllDailyReports();
+        if (reports.length === 0) {
+          setIsEditableDate(date === todayDate);
+          return;
+        }
+        const latest = yyyymmddToIso(Math.max(...reports.map((r) => r.reportDate)));
+        setIsEditableDate(date >= latest && date <= todayDate);
+      } catch {
+        setIsEditableDate(date === todayDate);
+      }
+    };
+    void loadEditability();
+  }, [date, todayDate]);
 
   useEffect(() => {
     loadDraft(date);
@@ -56,6 +77,10 @@ export function SalesEntryClient({ date }: SalesEntryClientProps) {
   };
 
   const handleDeleteEntry = (index: number) => {
+    if (!isEditableDate) {
+      alert("This date is read-only.");
+      return;
+    }
     if (draft && draft.sales) {
       const newSales = draft.sales.filter((_, i) => i !== index);
       updateSales(newSales);
@@ -63,6 +88,10 @@ export function SalesEntryClient({ date }: SalesEntryClientProps) {
   };
 
   const handleNoSales = () => {
+    if (!isEditableDate) {
+      alert("This date is read-only.");
+      return;
+    }
     const confirmed = window.confirm(
       "Confirm no sales for this date? You can edit sales later, but shed data will be reset.",
     );
@@ -87,12 +116,18 @@ export function SalesEntryClient({ date }: SalesEntryClientProps) {
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Entries ({draft?.sales.length || 0})</CardTitle>
             <div className="flex gap-2">
-              <Button variant="outline" size="lg" onClick={handleNoSales}>
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={handleNoSales}
+                disabled={!isEditableDate}
+              >
                 No Sales
               </Button>
               <Button
                 variant="outline"
                 size="lg"
+                disabled={!isEditableDate}
                 onClick={() => router.push(`/sales-entry/add-entry?date=${date}`)}
               >
                 <PlusIcon className="size-4 mr-1" />
@@ -100,6 +135,11 @@ export function SalesEntryClient({ date }: SalesEntryClientProps) {
               </Button>
             </div>
           </CardHeader>
+          {!isEditableDate ? (
+            <p className="px-6 pb-2 text-xs text-slate-600">
+              This date is read-only.
+            </p>
+          ) : null}
 
           <CardContent>
             {draft && draft.sales.length > 0 ? (
@@ -163,6 +203,7 @@ export function SalesEntryClient({ date }: SalesEntryClientProps) {
                         <Button
                           variant="ghost"
                           size="sm"
+                          disabled={!isEditableDate}
                           onClick={() => handleDeleteEntry(index)}
                         >
                           <TrashIcon className="h-4 w-4" />

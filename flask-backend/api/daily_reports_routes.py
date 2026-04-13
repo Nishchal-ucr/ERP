@@ -109,7 +109,7 @@ def update():
         return error(f"Cannot update: no report exists for {payload.get('reportDate')}.", 404)
     if reason == "locked":
         return error(
-            "Cannot update: A report for this date has already been submitted and locked.",
+            "Cannot update: only the latest submitted report can be updated.",
             400,
         )
     return ok(result, 200)

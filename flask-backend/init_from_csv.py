@@ -4,10 +4,21 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import date
 
 from db.schema import initialize_schema
 from db.seed import seed_data
 from services.csv_initialization_service import run_csv_initialization
+
+
+def _parse_iso_date(raw_date: str) -> int:
+    try:
+        parsed = date.fromisoformat(raw_date)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid --date '{raw_date}'. Expected format YYYY-MM-DD."
+        ) from exc
+    return int(parsed.strftime("%Y%m%d"))
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -51,6 +62,10 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--date",
+        help="Baseline report date in YYYY-MM-DD format (e.g. 2026-04-01).",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Validate and simulate import without writing to DB.",
@@ -61,6 +76,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = _build_parser().parse_args()
     try:
+        baseline_date_override = _parse_iso_date(args.date) if args.date else None
         initialize_schema()
         if not args.skip_seed:
             seed_data()
@@ -74,6 +90,7 @@ def main() -> int:
             replace_parties=args.replace_parties,
             clear_from_baseline=args.clear_from_baseline,
             prune_orphan_feed_items=args.prune_orphan_feed_items,
+            baseline_date_override=baseline_date_override,
             dry_run=args.dry_run,
         )
         print(json.dumps(result, indent=2))

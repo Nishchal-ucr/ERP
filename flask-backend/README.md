@@ -66,6 +66,12 @@ Typical first import (after editing `.env` and placing CSVs under `csvs/`):
 python init_from_csv.py --skip-seed
 ```
 
+Import with an explicit baseline date (for hosted go-live backfill, e.g. April 1st):
+
+```bash
+python init_from_csv.py --skip-seed --date 2026-04-01 --clear-from-baseline
+```
+
 ## Production
 
 Use a WSGI server (e.g. Gunicorn) behind a reverse proxy; do not rely on Flask’s `debug` server in production.

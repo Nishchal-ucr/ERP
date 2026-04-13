@@ -12,12 +12,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAppData } from "@/lib/app-data-context";
+import { getAllDailyReports } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { todayIsoLocal, yyyymmddToIso } from "@/lib/date-utils";
 import { useDailyReportDraft } from "@/lib/daily-report-draft-context";
 import type { CreateFeedReceiptDto } from "@/lib/types";
 import { PlusIcon, TrashIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 interface FeedPlantEntryClientProps {
   date: string;
@@ -29,6 +31,25 @@ export function FeedPlantEntryClient({ date }: FeedPlantEntryClientProps) {
   const { draft, loadDraft, updateFeedReceipts, markNoFeedReceipts } =
     useDailyReportDraft();
   const { parties, feedItems } = useAppData();
+  const [isEditableDate, setIsEditableDate] = useState(false);
+  const todayDate = todayIsoLocal();
+
+  useEffect(() => {
+    const loadEditability = async () => {
+      try {
+        const reports = await getAllDailyReports();
+        if (reports.length === 0) {
+          setIsEditableDate(date === todayDate);
+          return;
+        }
+        const latest = yyyymmddToIso(Math.max(...reports.map((r) => r.reportDate)));
+        setIsEditableDate(date >= latest && date <= todayDate);
+      } catch {
+        setIsEditableDate(date === todayDate);
+      }
+    };
+    void loadEditability();
+  }, [date, todayDate]);
 
   useEffect(() => {
     loadDraft(date);
@@ -61,6 +82,10 @@ export function FeedPlantEntryClient({ date }: FeedPlantEntryClientProps) {
   };
 
   const handleDeleteEntry = (index: number) => {
+    if (!isEditableDate) {
+      alert("This date is read-only.");
+      return;
+    }
     if (draft && draft.feedReceipts) {
       const newReceipts = draft.feedReceipts.filter((_, i) => i !== index);
       updateFeedReceipts(newReceipts);
@@ -68,6 +93,10 @@ export function FeedPlantEntryClient({ date }: FeedPlantEntryClientProps) {
   };
 
   const handleNoFeedReceipts = () => {
+    if (!isEditableDate) {
+      alert("This date is read-only.");
+      return;
+    }
     const confirmed = window.confirm(
       "Confirm no feed receipts for this date? You can edit feed data later, but shed data will be reset.",
     );
@@ -92,12 +121,18 @@ export function FeedPlantEntryClient({ date }: FeedPlantEntryClientProps) {
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Entries ({draft?.feedReceipts.length || 0})</CardTitle>
             <div className="flex gap-2">
-              <Button variant="outline" size="lg" onClick={handleNoFeedReceipts}>
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={handleNoFeedReceipts}
+                disabled={!isEditableDate}
+              >
                 No Feed Receipts
               </Button>
               <Button
                 variant="outline"
                 size="lg"
+                disabled={!isEditableDate}
                 onClick={() =>
                   router.push(`/feed-plant-entry/add-entry?date=${date}`)
                 }
@@ -107,6 +142,11 @@ export function FeedPlantEntryClient({ date }: FeedPlantEntryClientProps) {
               </Button>
             </div>
           </CardHeader>
+          {!isEditableDate ? (
+            <p className="px-6 pb-2 text-xs text-slate-600">
+              This date is read-only.
+            </p>
+          ) : null}
 
           <CardContent>
             {draft && draft.feedReceipts.length > 0 ? (
@@ -133,6 +173,7 @@ export function FeedPlantEntryClient({ date }: FeedPlantEntryClientProps) {
                           <Button
                             variant="ghost"
                             size="sm"
+                            disabled={!isEditableDate}
                             onClick={() => handleDeleteEntry(index)}
                           >
                             <TrashIcon className="h-4 w-4" />
